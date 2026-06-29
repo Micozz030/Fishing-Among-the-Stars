@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>木筏漂流记</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div id="topbar-row1">
+      <span class="stat" id="stat-era">🪵 石器时代</span>
+      <span class="stat" id="stat-zone">📍 溪流</span>
+      <span class="stat" id="topbar-raftstats">⚡速0 🛡牢0 🎨美0</span>
+      <span class="stat" id="topbar-gold">🪙 0</span>
+    </div>
+    <div id="topbar-row2">
+      <span id="energy-icon-label">⚡精力</span>
+      <div id="energy-bar"><div id="energy-bar-fill"></div></div>
+      <span id="energy-value">80/100</span>
+    </div>
+  </header>
+  <div id="topbar-spacer"></div>
+
+  <div id="canvas-wrap">
+    <canvas id="game" width="360" height="420"></canvas>
+    <button id="btn-costume" class="canvas-fab hidden" title="奇幻镜">🪞</button>
+  </div>
+
+  <div id="toast-layer"></div>
+  <div id="achievement-toast-layer"></div>
+  <div id="legendary-flash"></div>
+
+  <div id="panel">
+    <div id="zone-row">
+      <button id="btn-bestiary" class="big-btn secondary">📖 图鉴</button>
+      <button id="btn-blueprints" class="big-btn secondary">📐 图纸</button>
+      <button id="btn-skilltree" class="big-btn secondary">🌳 技能树</button>
+      <button id="btn-achievements" class="big-btn secondary">🏆 成就</button>
+      <button id="btn-shop" class="big-btn secondary">🏪 商店</button>
+      <button id="btn-zone-switch" class="big-btn secondary">⛵ 前往河流</button>
+    </div>
+
+    <div id="resources">
+      <div class="res" id="res-wood">🪵 木头: <span>0</span></div>
+      <div class="res" id="res-rope">🧵 绳子: <span>0</span></div>
+      <div class="res" id="res-scrap">🔧 废铁: <span>0</span></div>
+      <div class="res" id="res-iron">🔩 铁块: <span>0</span></div>
+      <div class="res" id="res-seaweed">🌿 水草: <span>0</span></div>
+      <div class="res" id="res-plastic">♻️ 塑料: <span>0</span></div>
+      <div class="res" id="res-coconut">🥥 椰子: <span>0</span></div>
+      <div class="res" id="res-bread">🍞 面包: <span>0</span></div>
+      <div class="res" id="res-spam">🥫 午餐肉: <span>0</span></div>
+      <div class="res" id="res-fish">🐟 鱼: <span>0</span></div>
+      <div class="res" id="res-water">💧 净水: <span>0</span></div>
+      <div class="res" id="res-trash">🗑️ 垃圾: <span>0</span></div>
+      <div class="res" id="res-raftkit">🧰 修复包: <span>0</span></div>
+      <div class="res" id="res-jerky">🍢 鱼干: <span>0</span></div>
+    </div>
+
+    <!-- 第一行: 钓鱼 (最突出, 含饵料下拉 + 动画进度条) -->
+    <div class="action-row" id="row-fish">
+      <div class="dropdown-root" id="bait-root">
+        <div class="bait-main-row">
+          <button id="btn-fish-cast" class="fish-cast-btn">🎣 钓鱼</button>
+          <button id="btn-bait-arrow" class="bait-arrow-btn">▾</button>
+        </div>
+        <div id="fish-progress" class="fish-progress hidden"><div id="fish-progress-fill" class="fish-progress-fill"></div></div>
+        <div id="bait-dropdown" class="dropdown-panel hidden"></div>
+      </div>
+    </div>
+
+    <!-- 第二行: 拉钩打捞 + 翻垃圾 -->
+    <div class="action-row two-col">
+      <button id="btn-fish-loot" class="big-btn">🪝 拉钩打捞</button>
+      <button id="btn-rummage" class="big-btn secondary">🗑️ 翻垃圾</button>
+    </div>
+
+    <!-- 第三行: 工坊 (建造+打造 合并入全屏窗口) -->
+    <div class="action-row">
+      <button id="btn-workshop" class="big-btn secondary" style="flex:1;">🔨 工坊</button>
+    </div>
+
+    <!-- 第四行: 补充精力 (下拉) -->
+    <div class="action-row" id="row-refill">
+      <div class="dropdown-root" id="refill-root">
+        <button id="btn-refill-toggle" class="refill-btn-row"><span class="refill-btn-label">⚡ 补充精力</span> ▾</button>
+        <div id="refill-dropdown" class="dropdown-panel hidden">
+          <button class="close-btn" id="refill-dropdown-close">✕</button>
+          <div id="refill-dropdown-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="workshop-modal" class="hidden">
+    <div class="workshop-box">
+      <button class="close-btn" id="workshop-close">✕</button>
+      <div class="workshop-scroll">
+        <h2>🔨 工坊</h2>
+        <div id="workshop-tabs">
+          <button id="workshop-tab-build" class="shop-tab-btn active">建造</button>
+          <button id="workshop-tab-craft" class="shop-tab-btn">打造</button>
+        </div>
+        <div id="workshop-build-pane">
+          <div id="workshop-build-grid" class="workshop-grid"></div>
+        </div>
+        <div id="workshop-craft-pane" class="hidden">
+          <div id="workshop-craft-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="bottle-modal" class="hidden">
+    <div class="chest-box bottle-box">
+      <button class="close-btn" id="bottle-close">✕</button>
+      <h2 id="bottle-title">🍾「漂流瓶」</h2>
+      <div id="bottle-quote" class="bottle-quote"></div>
+      <div id="bottle-instruction" class="bottle-instruction"></div>
+      <div id="bottle-reward" class="bottle-reward"></div>
+      <button id="bottle-claim" class="big-btn">领取奖励</button>
+    </div>
+  </div>
+
+  <div id="chest-modal" class="hidden">
+    <div class="chest-box">
+      <h2>🎁 打捞到一个箱子!</h2>
+      <div id="chest-result"></div>
+      <button id="chest-close" class="big-btn">收下</button>
+    </div>
+  </div>
+
+  <div id="event-modal" class="hidden">
+    <div class="chest-box event-box">
+      <button class="close-btn" id="event-close">✕</button>
+      <h2 id="event-title">事件</h2>
+      <div id="event-desc"></div>
+      <div id="event-options"></div>
+    </div>
+  </div>
+
+  <div id="buff-modal" class="hidden">
+    <div class="chest-box buff-box">
+      <h2>⛵ 进入河流 - 选择一个祝福</h2>
+      <div id="buff-options"></div>
+    </div>
+  </div>
+
+  <div id="bestiary-modal" class="hidden">
+    <div class="chest-box bestiary-box">
+      <button class="close-btn" id="bestiary-close">✕</button>
+      <h2>📖 钓鱼图鉴</h2>
+      <div id="bestiary-grid"></div>
+    </div>
+  </div>
+
+  <div id="blueprint-modal" class="hidden">
+    <div class="chest-box bestiary-box">
+      <button class="close-btn" id="blueprint-close">✕</button>
+      <h2>📐 图纸收藏</h2>
+      <div id="blueprint-grid"></div>
+    </div>
+  </div>
+
+  <div id="skilltree-modal" class="hidden">
+    <div class="chest-box skilltree-box">
+      <button class="close-btn" id="skilltree-close">✕</button>
+      <h2>🌳 技能树</h2>
+      <div id="skill-points-row">
+        <span id="skill-points-build">🪵 建造点: 0</span>
+        <span id="skill-points-fish">🎣 钓鱼点: 0</span>
+      </div>
+      <div id="skill-trees">
+        <div class="skill-tree-col" id="skill-tree-build"></div>
+        <div class="skill-tree-divider"></div>
+        <div class="skill-tree-col" id="skill-tree-fish"></div>
+      </div>
+      <div id="skill-detail">点击一个节点查看详情</div>
+    </div>
+  </div>
+
+  <div id="achievement-modal" class="hidden">
+    <div class="chest-box bestiary-box">
+      <button class="close-btn" id="achievement-close">✕</button>
+      <h2>🏆 成就</h2>
+      <div id="achievement-list"></div>
+    </div>
+  </div>
+
+  <div id="costume-modal" class="hidden">
+    <div class="chest-box costume-box">
+      <button class="close-btn" id="costume-close">✕</button>
+      <h2>🪞 奇幻镜·千变万化</h2>
+      <div class="costume-row">
+        <span class="costume-row-label">发色</span>
+        <div id="costume-hair-options" class="costume-opts"></div>
+      </div>
+      <div class="costume-row">
+        <span class="costume-row-label">瞳色</span>
+        <div id="costume-eye-options" class="costume-opts"></div>
+      </div>
+      <div class="costume-row">
+        <span class="costume-row-label">衣服</span>
+        <div id="costume-outfit-options" class="costume-opts"></div>
+      </div>
+      <div class="costume-row">
+        <span class="costume-row-label">配件</span>
+        <div id="costume-accessory-options" class="costume-opts"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="shop-modal" class="hidden">
+    <div class="chest-box shop-box">
+      <button class="close-btn" id="shop-close">✕</button>
+      <h2>🏪 商店</h2>
+      <div id="shop-tabs">
+        <button id="shop-tab-sell" class="shop-tab-btn active">出售</button>
+        <button id="shop-tab-buy" class="shop-tab-btn">购买</button>
+      </div>
+      <div id="shop-content"></div>
+    </div>
+  </div>
+
+</div>
+<script src="game.js"></script>
+</body>
+</html>
