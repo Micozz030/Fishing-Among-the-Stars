@@ -6,25 +6,34 @@ const ICONS = {
   seaweed: "🌿", plastic: "♻️", coconut: "🥥",
   bread: "🍞", spam: "🥫", fish: "🐟", water: "💧", trash: "🗑️", raftkit: "🧰",
   jerky: "🍢",
+  coconut_meat: "🍖", coconut_juice: "🥤",
 };
 
 // ====== 可调数值配置 (集中管理, 方便后续平衡性调整) ======
 const CONFIG = {
   RUMMAGE_CHANCE: { stream: 0.60, river: 0.60 },     // 翻垃圾成功概率
+  RUMMAGE_ENERGY_COST: 3,                             // 翻垃圾消耗精力 (固定3点)
   BLUEPRINT_DROP_CHANCE: 0.13,                        // 翻垃圾掉落图纸概率
   RAFT_PART_COST_MULTIPLIER: 2,                       // 图纸建筑材料成本倍数
   EXPAND_COST: { wood: 15, rope: 5 },                  // 每次扩建木筏消耗
+  INITIAL_RAFT_SLOTS: 6,                              // 新存档初始木筏格数 (2×3)
   ROPE_CRAFT: { cost: { wood: 5 }, yield: { rope: 2 } },        // 合成绳子
   REPAIR_KIT_CRAFT: { cost: { wood: 8 }, yield: { raftkit: 1 } }, // 合成木筏修复包
   JERKY_CRAFT: { cost: { fish: 3 }, yield: { jerky: 1 } },        // 晒鱼干
   SMELT_CRAFT: { cost: { scrap: 3 }, yield: { iron: 1 } },        // 熔炼铁块
+  COCONUT_RAW_RESTORE: 8,           // 生吃椰子回复精力
+  COCONUT_CRACK_RESTORE: 8,         // 椰子肉/椰子汁各自食用回复精力
+  SEAWEED_BONUS_CHANCE: 0.20,       // 打捞时额外掉落水草的概率 (可调, 叠加在掉落表本身之上)
+  AUTO_COLLECTOR_INTERVAL: 30,      // 自动收集网每N秒尝试一次打捞
+  AUTO_COLLECTOR_CHANCE: 0.40,      // 自动收集网每次尝试的掉落概率
+  AUTO_COLLECTOR_QTY_MULT: 0.5,     // 自动收集网掉落数量相对手动的倍率
   PET_FEED_RESTORE: 40,             // 每次喂食恢复饱食度
   PET_DECAY_INTERVAL: 600,          // 宠物饱食度每10分钟(秒)衰减一次
   PET_DECAY_AMOUNT: 10,
   PET_GIFT_CHANCE_PER_MIN: 0.05,    // 饱食度满时, 每分钟5%概率叼来礼物
   ZONE_SLOTS: {
-    stream: { base: 4, max: 9, step: 1, maxExpansions: 5 },   // 2x2 -> 3x3, 最多扩建5次
-    river: { base: 9, max: 25, step: 4, maxExpansions: 4 },    // 3x3 -> 5x5, 最多扩建4次
+    stream: { base: 4, max: 9, step: 1 },   // 溪流: 最大3×3=9格
+    river: { base: 9, max: 25, step: 4 },    // 河流: 最大5×5=25格
   },
   ENERGY_REGEN_INTERVAL: 30,        // 精力耗尽后, 每隔多少秒被动恢复一次
   ENERGY_REGEN_AMOUNT: 5,           // 每次被动恢复的精力值
@@ -135,7 +144,7 @@ const FISH_SELL_PRICE = 5; // 鱼出售单价 (金币/条)
 
 const state = {
   era: "stone", // stone -> iron
-  res: { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0 },
+  res: { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0 },
 
   // ---- 角色/宠物选择 ----
   character: null,             // "female" | "male", 首次开局选择
@@ -149,8 +158,8 @@ const state = {
   bottlesSeen: [],              // 已领取过的漂流瓶 id 列表
   everVisitedRiver: false,      // 是否曾经切换到河流
 
-  // ---- 木筏面积/扩建 ----
-  zoneExpansions: { stream: 0, river: 0 },
+  // ---- 木筏面积/扩建 (全局格数, 跨流域持久, 各流域有各自的上限) ----
+  raftSlots: CONFIG.INITIAL_RAFT_SLOTS,
 
   // ---- 精力值系统 (合并了原饥饿/口渴/体力) ----
   energy: 80,
@@ -168,6 +177,7 @@ const state = {
   },
   rodLevel: 0, // 鱼竿升级等级 0~6, 每级+5%命中率 (50% -> 80%)
   purifierAccum: 0, // 净水器累积计时器
+  autocollectorAccum: 0, // 自动收集网打捞计时器
   lastTick: Date.now(),
 
   // ---- 流域/图鉴/事件 ----
@@ -217,7 +227,12 @@ const state = {
 function load() {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) {
+    if (!raw) {
+      // 全新存档: 发放初始礼包
+      addRes({ wood: 10, rope: 10, iron: 2, bread: 2, spam: 2 });
+      return;
+    }
+    {
       const data = JSON.parse(raw);
 
       // 旧存档兼容: 饥饿/口渴/体力 -> 精力值迁移
@@ -230,8 +245,17 @@ function load() {
       delete data.hunger; delete data.thirst; delete data.stamina;
 
       Object.assign(state, data);
-      state.res = Object.assign({ wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0 }, data.res);
-      state.zoneExpansions = Object.assign({ stream: 0, river: 0 }, data.zoneExpansions);
+      state.res = Object.assign({ wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0 }, data.res);
+
+      // 旧存档兼容: zoneExpansions → raftSlots (全局持久格数)
+      if (data.raftSlots === undefined && data.zoneExpansions) {
+        const ze = data.zoneExpansions;
+        const streamSlots = 4 + (ze.stream || 0) * 1;
+        const riverSlots = 9 + (ze.river || 0) * 4;
+        state.raftSlots = Math.max(streamSlots, riverSlots);
+      } else {
+        state.raftSlots = data.raftSlots !== undefined ? data.raftSlots : CONFIG.INITIAL_RAFT_SLOTS;
+      }
       state.builds = Object.assign({ net: false, furnace: false, autocollector: false, rod: false, hammer: false, purifier: false }, data.builds);
       state.bestiary = data.bestiary || {};
       state.blueprints = data.blueprints || {};
@@ -418,14 +442,15 @@ function sturdyMitigation() {
 }
 
 // ====== 木筏面积/扩建 ======
+// raftSlots 是全局持久属性; 各流域只限制上限 (溪流≤9, 河流≤25); 已扩建面积跨流域保留
 function zoneSlotConfig(zone) { return CONFIG.ZONE_SLOTS[zone] || CONFIG.ZONE_SLOTS.stream; }
 function zoneTotalSlots(zone) {
   const cfg = zoneSlotConfig(zone);
-  return Math.min(cfg.max, cfg.base + state.zoneExpansions[zone] * cfg.step);
+  return Math.max(cfg.base, Math.min(cfg.max, state.raftSlots));
 }
 function canExpandZone(zone) {
   const cfg = zoneSlotConfig(zone);
-  return state.zoneExpansions[zone] < cfg.maxExpansions;
+  return state.raftSlots < cfg.max;
 }
 
 function doExpandRaft() {
@@ -434,7 +459,8 @@ function doExpandRaft() {
   if (state.energy <= 0) { toast("精力不足,歇一会再扩建吧"); setWorkshopFeedback("expand", false); return; }
   if (!canAfford(CONFIG.EXPAND_COST)) { toast("材料不够"); setWorkshopFeedback("expand", false); return; }
   payCost(CONFIG.EXPAND_COST);
-  state.zoneExpansions[zone] += 1;
+  const cfg = zoneSlotConfig(zone);
+  state.raftSlots = Math.min(cfg.max, state.raftSlots + cfg.step);
   spendEnergy(4);
   toast(`木筏扩建完成!当前面积: ${zoneTotalSlots(zone)}格`);
   setWorkshopFeedback("expand", true);
@@ -798,6 +824,10 @@ function doFishLoot() {
     addRes({ coconut: 1 });
     extraMsg += ` 🥥+1`;
   }
+  if (Math.random() < CONFIG.SEAWEED_BONUS_CHANCE) {
+    addRes({ seaweed: 1 });
+    extraMsg += ` 🌿+1`;
+  }
 
   toast(`捞到了 ${resLine(scaled)}${extraMsg}`);
   spawnFloatingText(`+${Object.values(scaled).reduce((a, b) => a + b, 0)}`);
@@ -832,6 +862,8 @@ const FOOD_DEFS = {
   bread: { restore: 15, label: "面包" },
   spam: { restore: 18, label: "午餐肉" },
   fish: { restore: 12, label: "鱼" }, // 注: 鱼目前不分稀有度库存, 统一按普通鱼回复值计算
+  coconut_meat: { restore: CONFIG.COCONUT_CRACK_RESTORE, label: "椰子肉" },
+  coconut_juice: { restore: CONFIG.COCONUT_CRACK_RESTORE, label: "椰子汁" },
 };
 
 function doEat(key) {
@@ -982,12 +1014,12 @@ function doUpgradeRod() {
   save();
 }
 
-// ====== 椰子处理: 生吃 / 锤子敲开 / 净水器过滤, 三种方式直接回复精力 ======
+// ====== 椰子处理: 生吃(+8精力) / 锤子敲开(产出椰子肉×1+椰子汁×1) ======
 function doEatCoconutRaw() {
   if (state.res.coconut < 1) { toast("没有椰子了"); setWorkshopFeedback("coconut_raw", false); return; }
   state.res.coconut -= 1;
-  restoreEnergy(10);
-  toast("生吃了一个椰子,精力+10 🥥");
+  restoreEnergy(CONFIG.COCONUT_RAW_RESTORE);
+  toast(`生吃了一个椰子,精力+${CONFIG.COCONUT_RAW_RESTORE} 🥥`);
   setWorkshopFeedback("coconut_raw", true);
   updateUI();
   save();
@@ -997,21 +1029,28 @@ function doOpenCoconut() {
   if (!state.builds.hammer) return;
   if (state.res.coconut < 1) { toast("没有椰子可以敲"); setWorkshopFeedback("coconut_hammer", false); return; }
   state.res.coconut -= 1;
-  restoreEnergy(15);
-  if (Math.random() < 0.3) { state.res.scrap += 1; }
-  toast("敲开了一个椰子,精力+15 🔨");
+  state.res.coconut_meat = (state.res.coconut_meat || 0) + 1;
+  state.res.coconut_juice = (state.res.coconut_juice || 0) + 1;
+  toast("敲开了一个椰子!获得 🍖椰子肉×1 + 🥤椰子汁×1,可分开食用各+8精力");
   setWorkshopFeedback("coconut_hammer", true);
   updateUI();
   save();
 }
 
-function doFilterCoconutEnergy() {
-  if (!state.builds.purifier) return;
-  if (state.res.coconut < 1) { toast("没有椰子可以过滤"); setWorkshopFeedback("coconut_filter", false); return; }
-  state.res.coconut -= 1;
-  restoreEnergy(20);
-  toast("用净水器过滤了椰子汁,精力+20 💧");
-  setWorkshopFeedback("coconut_filter", true);
+function doEatCoconutMeat() {
+  if ((state.res.coconut_meat || 0) < 1) { toast("没有椰子肉了"); return; }
+  state.res.coconut_meat -= 1;
+  restoreEnergy(FOOD_DEFS.coconut_meat.restore);
+  toast(`吃了椰子肉,精力+${FOOD_DEFS.coconut_meat.restore} 🍖`);
+  updateUI();
+  save();
+}
+
+function doEatCoconutJuice() {
+  if ((state.res.coconut_juice || 0) < 1) { toast("没有椰子汁了"); return; }
+  state.res.coconut_juice -= 1;
+  restoreEnergy(FOOD_DEFS.coconut_juice.restore);
+  toast(`喝了椰子汁,精力+${FOOD_DEFS.coconut_juice.restore} 🥤`);
   updateUI();
   save();
 }
@@ -1064,7 +1103,7 @@ function doRummage() {
   } else {
     toast(`翻了半天什么都没找到...`);
   }
-  spendEnergy(5);
+  spendEnergy(CONFIG.RUMMAGE_ENERGY_COST);
   updateUI();
   save();
 }
@@ -1947,12 +1986,16 @@ function renderRefillDropdown() {
 
   addRow("🍞", "面包", `+${FOOD_DEFS.bread.restore}精力`, `库存 ${Math.floor(state.res.bread)}`, "吃",
     () => doRefillEat("bread"), full || state.res.bread < 1);
-  addRow("🥩", "午餐肉", `+${FOOD_DEFS.spam.restore}精力`, `库存 ${Math.floor(state.res.spam)}`, "吃",
+  addRow("🥫", "午餐肉", `+${FOOD_DEFS.spam.restore}精力`, `库存 ${Math.floor(state.res.spam)}`, "吃",
     () => doRefillEat("spam"), full || state.res.spam < 1);
   addRow("🐟", "鱼", `+${FOOD_DEFS.fish.restore}精力 <span class="refill-sell-hint">⚠️ 可卖金币</span>`, `库存 ${Math.floor(state.res.fish)}`, "吃",
     () => doRefillEat("fish"), full || state.res.fish < 1);
-  addRow("🥥", "椰子", `+${10}精力`, `库存 ${Math.floor(state.res.coconut)}`, "吃",
+  addRow("🥥", "椰子", `+${CONFIG.COCONUT_RAW_RESTORE}精力`, `库存 ${Math.floor(state.res.coconut)}`, "吃",
     doEatCoconutRaw, state.res.coconut < 1);
+  addRow("🍖", "椰子肉", `+${FOOD_DEFS.coconut_meat.restore}精力`, `库存 ${Math.floor(state.res.coconut_meat || 0)}`, "吃",
+    doEatCoconutMeat, (state.res.coconut_meat || 0) < 1);
+  addRow("🥤", "椰子汁", `+${FOOD_DEFS.coconut_juice.restore}精力`, `库存 ${Math.floor(state.res.coconut_juice || 0)}`, "喝",
+    doEatCoconutJuice, (state.res.coconut_juice || 0) < 1);
   addRow("🍢", "鱼干", "宠物食物", `库存 ${Math.floor(state.res.jerky)}`, "→喂宠物",
     () => { closeAllDropdowns(); syncDropdownVisibility(); doFeedPet(); }, !state.pet || state.res.jerky < 1);
 
@@ -2134,23 +2177,22 @@ function renderCraftModal() {
   if (state.builds.dryer) addRecipeRow("craft_jerky", "🥩", "鱼→鱼干", "晒制鱼干,用于喂养宠物", CONFIG.JERKY_CRAFT.cost, CONFIG.JERKY_CRAFT.yield, doMakeJerky, true);
   if (state.builds.furnace) addRecipeRow("smelt", "🔥", "废铁→铁块", "将原矿冶炼为金属材料,解锁更多高级合成", CONFIG.SMELT_CRAFT.cost, CONFIG.SMELT_CRAFT.yield, doSmeltIron, true);
 
-  // 椰子处理 (三种方式直接回复精力)
-  const coconutRow = (key, icon, label, desc, requireLabel, restoreText, fn, locked) => {
+  // 椰子处理: 锤子敲开椰子 → 产出椰子肉×1 + 椰子汁×1
+  {
+    const key = "coconut_hammer";
+    const locked = !state.builds.hammer;
     const row = document.createElement("div");
     row.className = "wrow";
     const fb = feedbackOverlayHtml(key);
     row.innerHTML = fb || `
-      <div class="wrow-info"><span class="wrow-icon">${icon}</span> <b>${label}</b><br>
-      <span class="wrow-desc">${desc}</span><br>
-      <span class="wrow-cost">椰子×1${requireLabel} → ${restoreText}</span></div>
+      <div class="wrow-info"><span class="wrow-icon">🔨</span> <b>锤子开椰子</b><br>
+      <span class="wrow-desc">敲开椰子,获得椰子肉×1和椰子汁×1,两件均可单独食用精力+${CONFIG.COCONUT_CRACK_RESTORE}</span><br>
+      <span class="wrow-cost">椰子×1+锤子 → 🍖椰子肉×1 + 🥤椰子汁×1</span></div>
       <div class="wrow-actions"><button class="wcard-btn wrow-btn1" ${locked || state.res.coconut < 1 ? "disabled" : ""}>${locked ? "🔒锁定" : "处理"}</button></div>
     `;
-    if (!fb && !locked) row.querySelector(".wrow-btn1").onclick = fn;
+    if (!fb && !locked) row.querySelector(".wrow-btn1").onclick = doOpenCoconut;
     list.appendChild(row);
-  };
-  // 注: "直接吃椰子"已移到下方"补充精力"下拉里, 这里只保留需要建筑配合的两种处理方式
-  coconutRow("coconut_hammer", "🔨", "锤子开椰子", "可砸开椰子获得更多精力,也用于部分打造配方", "+锤子", "精力+15", doOpenCoconut, !state.builds.hammer);
-  coconutRow("coconut_filter", "💧", "过滤净水", "把椰子水过滤成更干净的饮用水", "+净水器", "精力+20", doFilterCoconutEnergy, !state.builds.purifier);
+  }
 
   if (!list.children.length) {
     list.innerHTML = `<div class="wrow-info" style="opacity:0.6;">暂无可打造项目</div>`;
@@ -2203,9 +2245,11 @@ function renderGuide() {
 const BAG_ITEMS = [
   { key: "fish", icon: "🐟", name: "鱼", eat: () => doEat("fish"), eatLabel: `精力+${FOOD_DEFS.fish.restore}`, sellPrice: FISH_SELL_PRICE },
   { key: "bread", icon: "🍞", name: "面包", eat: () => doEat("bread"), eatLabel: `精力+${FOOD_DEFS.bread.restore}`, sellPrice: 2 },
-  { key: "spam", icon: "🥩", name: "午餐肉", eat: () => doEat("spam"), eatLabel: `精力+${FOOD_DEFS.spam.restore}`, sellPrice: 3 },
+  { key: "spam", icon: "🥫", name: "午餐肉", eat: () => doEat("spam"), eatLabel: `精力+${FOOD_DEFS.spam.restore}`, sellPrice: 3 },
   { key: "water", icon: "💧", name: "净水", eat: () => doDrink(), eatLabel: "精力+10", sellPrice: 1 },
-  { key: "coconut", icon: "🥥", name: "椰子", eat: () => doEatCoconutRaw(), eatLabel: "精力+10", sellPrice: 1 },
+  { key: "coconut", icon: "🥥", name: "椰子", eat: () => doEatCoconutRaw(), eatLabel: `精力+${CONFIG.COCONUT_RAW_RESTORE}`, sellPrice: 1 },
+  { key: "coconut_meat", icon: "🍖", name: "椰子肉", eat: () => doEatCoconutMeat(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
+  { key: "coconut_juice", icon: "🥤", name: "椰子汁", eat: () => doEatCoconutJuice(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
   { key: "jerky", icon: "🍢", name: "鱼干", eat: null, sellPrice: 2 },
   { key: "raftkit", icon: "🧰", name: "修复包", eat: null, sellPrice: 3 },
 ];
@@ -3273,12 +3317,23 @@ function gameTick() {
   }
 
   if (state.builds.autocollector) {
-    const eff = efficiency();
-    let gain = deltaSec * 0.6 * eff;
-    if (state.skills.build.automation_master) gain += deltaSec * 0.3; // 自动化大师占位加成
-    state.res.wood += gain;
-    state.res.rope += gain * 0.6;
-    if (Math.random() < deltaSec * 0.02) state.res.scrap += 1;
+    state.autocollectorAccum = (state.autocollectorAccum || 0) + deltaSec;
+    while (state.autocollectorAccum >= CONFIG.AUTO_COLLECTOR_INTERVAL) {
+      state.autocollectorAccum -= CONFIG.AUTO_COLLECTOR_INTERVAL;
+      if (Math.random() < CONFIG.AUTO_COLLECTOR_CHANCE) {
+        const table = state.era === "iron" ? LOOT_TABLE_IRON : LOOT_TABLE_STONE;
+        const loot = pick(table);
+        const scaledLoot = {};
+        for (const k in loot) {
+          scaledLoot[k] = Math.max(1, Math.round(loot[k] * CONFIG.AUTO_COLLECTOR_QTY_MULT));
+        }
+        if (state.skills.build.automation_master) {
+          for (const k in scaledLoot) scaledLoot[k] += 1; // 自动化大师: 额外+1
+        }
+        addRes(scaledLoot);
+        toast(`⚙️ 自动收集网捞到 ${resLine(scaledLoot)}`);
+      }
+    }
   }
 
   if (state.builds.purifier) {
