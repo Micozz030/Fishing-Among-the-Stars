@@ -3534,3 +3534,17 @@ raftDisplayedSlots = zoneTotalSlots(state.zone);
 updateUI();
 drawScene();
 setInterval(gameTick, 1000);
+
+// ====== 重置存档 ======
+const GAME_STORAGE_KEYS = [SAVE_KEY, COSTUME_SAVE_KEY];
+
+document.getElementById("btn-reset-save").onclick = () => {
+  document.getElementById("reset-confirm-modal").classList.remove("hidden");
+};
+document.getElementById("btn-reset-cancel").onclick = () => {
+  document.getElementById("reset-confirm-modal").classList.add("hidden");
+};
+document.getElementById("btn-reset-confirm").onclick = () => {
+  GAME_STORAGE_KEYS.forEach(k => localStorage.removeItem(k));
+  location.reload();
+};

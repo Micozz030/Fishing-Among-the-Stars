@@ -780,3 +780,60 @@ html, body {
 }
 .bottle-instruction { font-size: 12.5px; line-height: 1.6; text-align: left; margin-bottom: 10px; }
 .bottle-reward { font-size: 12.5px; color: #ffd86b; font-weight: bold; margin-bottom: 12px; }
+
+/* ====== 重置存档按钮 (固定右上角, 始终可见) ====== */
+#btn-reset-save {
+  position: fixed;
+  top: 8px;
+  right: 8px;
+  z-index: 400;
+  min-height: 44px;
+  padding: 6px 10px;
+  background: #1a0a0a;
+  color: #ff6b6b;
+  border: 1.5px solid #7a2020;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: bold;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0.75;
+  transition: opacity 0.15s, border-color 0.15s;
+  touch-action: manipulation;
+}
+#btn-reset-save:hover,
+#btn-reset-save:active { opacity: 1; border-color: #ff6b6b; }
+
+/* ====== 重置确认弹窗 ====== */
+#reset-confirm-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+#reset-confirm-modal.hidden { display: none; }
+.reset-confirm-box {
+  width: 280px;
+  text-align: center;
+}
+#reset-confirm-msg {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+  color: #eef6ff;
+}
+.reset-confirm-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.reset-danger-btn {
+  background: #7a1a1a !important;
+  border-color: #ff6b6b !important;
+  color: #ff6b6b !important;
+}
+.reset-danger-btn:hover,
+.reset-danger-btn:active { background: #a02020 !important; }
