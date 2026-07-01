@@ -39,10 +39,20 @@ const CONFIG = {
   ENERGY_REGEN_AMOUNT: 5,           // 每次被动恢复的精力值
 };
 
+// ====== 钓鱼精准小游戏条参数 ======
+const BAR_CONFIG = {
+  x: 316, y: 90, w: 22, h: 200,
+  markerH: 8,
+  rareTargetBase: 80,         // 稀有鱼目标区间基础高度(px)
+  legendaryTargetBase: 50,    // 传说鱼目标区间基础高度(px)
+  bonusPxPerLevel: 4,         // 每级鱼竿额外增加目标区间高度(px)
+  baseSpeedPerSec: 0.55,      // 指针每秒移动距离(占条高度比)
+  speedReductionPerLevel: 0.05, // 每级鱼竿减速百分比
+};
+
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
 let selectedBait = "seaweed";       // 当前选中的鱼饵 (下拉选择, 默认水草)
 let baitDropdownOpen = false;       // 鱼饵下拉是否展开
-let refillDropdownOpen = false;     // 补充精力下拉是否展开
 let collapsedBuiltOpen = false;     // 建造面板"已建造"折叠区是否展开
 
 // ====== 建造/打造系统 (拆分为两个独立面板) ======
@@ -77,6 +87,15 @@ let fishingBaitBonus = 0;
 let fishingTimer = null;
 let fishRipples = [];               // canvas水面波纹特效 [{x,y,life}]
 let fishRippleAccum = 0;
+
+// ====== 稀有/传说鱼精准小游戏状态 ======
+let fishingBiteTier = null;         // "common"|"rare"|"legendary" 咬钩阶段预判
+let fishingBarMarker = 0.5;         // 0-1 移动指针位置
+let fishingBarDir = 1;              // 弹跳方向
+let fishingBarTargetY = 0.3;        // 0-1 目标区间顶端
+let fishingBarTargetH = 0.4;        // 0-1 目标区间高度
+let fishingBarHit = null;           // 玩家点击时是否命中目标区间
+let fishingBarLastUpdate = 0;       // 帧增量计时
 
 // ====== 角色换装系统 (奇幻镜) ======
 const COSTUME_SAVE_KEY = "costume_state";
@@ -307,7 +326,9 @@ function markActivity() {
   state.restAccum = 0;
 }
 function spendEnergy(n) {
+  const wasAboveZero = state.energy > 0;
   state.energy = Math.max(0, state.energy - n);
+  if (wasAboveZero && state.energy <= 0) toast("休息一下等精力回复吧~");
   markActivity();
 }
 function restoreEnergy(n) {
@@ -426,9 +447,8 @@ function tryBuildPart(key) {
   state.raftStats.sturdy += part.stats.sturdy;
   state.raftStats.beauty += part.stats.beauty;
   spendEnergy(4);
-  toast(`🔨 建成了 ${part.name}!`);
+  toast(`获得了${part.name}!`);
   checkBuildAchievements();
-  setWorkshopFeedback("part_" + key, true);
   updateUI();
   save();
 }
@@ -463,7 +483,6 @@ function doExpandRaft() {
   state.raftSlots = Math.min(cfg.max, state.raftSlots + cfg.step);
   spendEnergy(4);
   toast(`木筏扩建完成!当前面积: ${zoneTotalSlots(zone)}格`);
-  setWorkshopFeedback("expand", true);
   updateUI();
   save();
 }
@@ -484,7 +503,6 @@ function doCraftBatch(feedbackKey, cost, yieldObj, n, energyEach, label) {
   const totalYield = {};
   for (const k in yieldObj) totalYield[k] = yieldObj[k] * times;
   toast(`${label} x${times}: 获得 ${resLine(totalYield)}`);
-  setWorkshopFeedback(feedbackKey, true);
   updateUI();
   save();
   return times;
@@ -771,8 +789,7 @@ function rollFishSpecies(forceTier) {
     if (Math.random() < legendaryChance) tier = "legendary";
     else if (zone === "river") {
       const luckBonus = state.currentBuff === "luck" ? 0.20 : 0;
-      const skillBonus = state.skills.fish.rare_sense ? 0.10 : 0;
-      tier = Math.random() < (0.08 + luckBonus + skillBonus) ? "rare" : "common";
+      tier = Math.random() < (0.08 + luckBonus) ? "rare" : "common";
     } else {
       tier = "common";
     }
@@ -898,6 +915,32 @@ function displayChancePct(actualChance) {
 
 const FISH_ESCAPE_JOKES = ["跑了!手慢了一步", "差一点……", "这条鱼太狡猾了"];
 
+// 返回稀有/传说鱼出现概率的综合倍率 (饵料 × 技能 × 词条)
+function getRareLegendaryMultiplier(baitKey) {
+  const BAIT_MULTS = {
+    seaweed: { rare: 1.0, legendary: 1.0 },
+    bread:   { rare: 1.4, legendary: 1.6 },
+    spam:    { rare: 1.6, legendary: 2.0 },
+  };
+  const bm = BAIT_MULTS[baitKey] || BAIT_MULTS.seaweed;
+  let rare = bm.rare;
+  let legendary = bm.legendary;
+  if (state.skills.fish.rare_sense) { rare *= 1.2; legendary *= 1.1; }
+  if (state.currentBuff === "precision" && state.zone === "river") { rare *= 1.15; legendary *= 1.15; }
+  return { rare, legendary };
+}
+
+// 根据饵料+技能+词条预判本次咬钩的鱼种等级
+function rollFishTierWithBait(baitKey) {
+  const mults = getRareLegendaryMultiplier(baitKey);
+  if (Math.random() < 0.005 * mults.legendary) return "legendary";
+  if (state.zone === "river") {
+    const luckBonus = state.currentBuff === "luck" ? 0.20 : 0;
+    if (Math.random() < (0.08 + luckBonus) * mults.rare) return "rare";
+  }
+  return "common";
+}
+
 // 入口: 点击「钓鱼」按钮 (idle时起竿, biting时拉线)
 function doFishing(useFoodBait) {
   if (fishingState === "biting") { pullFishingLine(); return; }
@@ -905,13 +948,13 @@ function doFishing(useFoodBait) {
   if (!state.builds.rod) return;
   if (state.energy <= 0) { toast("精力不足,歇一会再钓吧"); return; }
 
-  let baitKey = "seaweed", bonus = 0;
-  if (useFoodBait === "bread" || useFoodBait === "spam") { baitKey = useFoodBait; bonus = 0.10; }
+  let baitKey = "seaweed";
+  if (useFoodBait === "bread" || useFoodBait === "spam") baitKey = useFoodBait;
   if (state.res[baitKey] < 1) { toast(`没有${ICONS[baitKey]}可以做鱼饵了`); return; }
   state.res[baitKey] -= 1;
 
   fishingBaitKey = baitKey;
-  fishingBaitBonus = bonus;
+  fishingBaitBonus = 0; // 饵料不再影响命中率, 改为影响稀有/传说触发概率
   fishingState = "casting";
   fishingPhaseDur = 350;
   fishingPhaseUntil = Date.now() + fishingPhaseDur;
@@ -931,16 +974,36 @@ function enterFishWaitPhase() {
 }
 
 function enterFishBitePhase() {
+  fishingBiteTier = rollFishTierWithBait(fishingBaitKey);
+  let dur = 800;
+  if (fishingBiteTier !== "common") {
+    // 稀有/传说鱼: 启动精准小游戏条, 给更长的互动窗口
+    const basePx = fishingBiteTier === "legendary" ? BAR_CONFIG.legendaryTargetBase : BAR_CONFIG.rareTargetBase;
+    const targetPx = Math.min(BAR_CONFIG.h * 0.85, basePx + state.rodLevel * BAR_CONFIG.bonusPxPerLevel);
+    fishingBarTargetH = targetPx / BAR_CONFIG.h;
+    fishingBarTargetY = 0.05 + Math.random() * (0.9 - fishingBarTargetH);
+    fishingBarMarker = Math.random();
+    fishingBarDir = Math.random() < 0.5 ? 1 : -1;
+    fishingBarHit = null;
+    fishingBarLastUpdate = Date.now();
+    dur = 3000;
+  } else {
+    fishingBarHit = null;
+  }
   fishingState = "biting";
-  fishingPhaseDur = 800;
-  fishingPhaseUntil = Date.now() + fishingPhaseDur;
+  fishingPhaseDur = dur;
+  fishingPhaseUntil = Date.now() + dur;
   updateUI();
-  fishingTimer = setTimeout(missFishBite, 800);
+  fishingTimer = setTimeout(missFishBite, dur);
 }
 
 function missFishBite() {
   fishingState = "idle";
-  toast(pick(FISH_ESCAPE_JOKES));
+  if (fishingBiteTier === "legendary") toast("时机没把握住,传说鱼溜走了!");
+  else if (fishingBiteTier === "rare") toast("时机没把握住,稀有鱼溜走了!");
+  else toast(pick(FISH_ESCAPE_JOKES));
+  fishingBiteTier = null;
+  fishingBarHit = null;
   updateUI();
   save();
 }
@@ -948,6 +1011,11 @@ function missFishBite() {
 function pullFishingLine() {
   if (fishingState !== "biting") return;
   clearTimeout(fishingTimer);
+  // 精准小游戏: 记录点击时指针是否在目标区间内
+  if (fishingBiteTier && fishingBiteTier !== "common") {
+    fishingBarHit = fishingBarMarker >= fishingBarTargetY &&
+                    fishingBarMarker <= fishingBarTargetY + fishingBarTargetH;
+  }
   fishingState = "pulling";
   fishingPhaseDur = 350;
   fishingPhaseUntil = Date.now() + fishingPhaseDur;
@@ -959,15 +1027,26 @@ function resolveFishCatch() {
   const now = Date.now();
   const tempHit = now < state.tempHitModExpire ? state.tempHitMod : 0;
   const eff = efficiency();
-  const chance = Math.min(1, (rodChance() + fishingBaitBonus + tempHit) * eff);
+  const tier = fishingBiteTier || "common";
 
-  // 精准直觉: 每3次成功钓鱼必定命中一次稀有鱼 (仅河流有效)
-  let forceTier = null;
+  // 稀有/传说鱼: 由精准小游戏条命中结果决定; 普通鱼: 沿用命中率判断
+  let hit;
+  if (tier === "rare" || tier === "legendary") {
+    hit = fishingBarHit === true;
+  } else {
+    const chance = Math.min(1, (rodChance() + tempHit) * eff);
+    hit = Math.random() < chance;
+  }
+
+  // 精准直觉: 每3次成功钓到普通鱼时将本次鱼种强制升为稀有
+  let forceTier = tier;
   const precisionActive = state.currentBuff === "precision" && state.zone === "river";
 
-  if (Math.random() < chance) {
-    state.castStreak += 1;
-    if (precisionActive && state.castStreak % 3 === 0) forceTier = "rare";
+  if (hit) {
+    if (tier === "common") {
+      state.castStreak += 1;
+      if (precisionActive && state.castStreak % 3 === 0) forceTier = "rare";
+    }
 
     const speciesKey = rollFishSpecies(forceTier);
     registerCatch(speciesKey);
@@ -984,13 +1063,17 @@ function resolveFishCatch() {
       toast(`磁力鱼钩还多带上来一条 ${FISH[extraKey].icon}${FISH[extraKey].name}!`);
     }
   } else {
-    state.castStreak = 0;
-    toast("鱼饵被叼跑了,这次没钓到...");
+    if (tier === "common") state.castStreak = 0;
+    if (tier === "legendary") toast("时机没对上,传说鱼溜走了!");
+    else if (tier === "rare") toast("时机没对上,稀有鱼溜走了!");
+    else toast("鱼饵被叼跑了,这次没钓到...");
     checkFishAchievements(null, false);
   }
   spendEnergy(3);
   fishingState = "idle";
   fishingBaitKey = null;
+  fishingBiteTier = null;
+  fishingBarHit = null;
   updateUI();
   save();
 }
@@ -1009,7 +1092,6 @@ function doUpgradeRod() {
   state.rodLevel += 1;
   spendEnergy(4);
   toast(`鱼竿升级! 命中率提升到 ${displayChancePct(rodChance())}%`);
-  setWorkshopFeedback("rod_upgrade", true);
   updateUI();
   save();
 }
@@ -1020,7 +1102,6 @@ function doEatCoconutRaw() {
   state.res.coconut -= 1;
   restoreEnergy(CONFIG.COCONUT_RAW_RESTORE);
   toast(`生吃了一个椰子,精力+${CONFIG.COCONUT_RAW_RESTORE} 🥥`);
-  setWorkshopFeedback("coconut_raw", true);
   updateUI();
   save();
 }
@@ -1032,7 +1113,6 @@ function doOpenCoconut() {
   state.res.coconut_meat = (state.res.coconut_meat || 0) + 1;
   state.res.coconut_juice = (state.res.coconut_juice || 0) + 1;
   toast("敲开了一个椰子!获得 🍖椰子肉×1 + 🥤椰子汁×1,可分开食用各+8精力");
-  setWorkshopFeedback("coconut_hammer", true);
   updateUI();
   save();
 }
@@ -1146,16 +1226,16 @@ function tryBuild(key) {
   state.builds[key] = true;
   spendEnergy(4);
 
-  if (key === "net") toast("绳网做好了!打捞效率提升 🪝");
-  if (key === "furnace") toast("熔炉建成!现在可以熔炼铁块了 🔥");
-  if (key === "autocollector") { toast("自动收集网启动!木筏文明跃升 ⚙️➡️ 铁器时代!"); state.era = "iron"; }
-  if (key === "rod") toast("做好了一根简易鱼竿! 🎣");
-  if (key === "hammer") toast("打造了一把锤子! 🔨 可以敲椰子了");
-  if (key === "purifier") toast("净水过滤器搭建完成! 🚰 开始缓慢产水");
-  if (key === "dryer") toast("晒鱼架搭好了! 🍢 现在可以晒鱼干喂宠物了");
+  if (key === "net") toast("获得了绳网!打捞效率提升 🪝");
+  else if (key === "furnace") toast("获得了熔炉! 🔥 现在可以熔炼铁块了");
+  else if (key === "autocollector") { toast("获得了自动收集网! ⚙️ 木筏文明跃升铁器时代!"); state.era = "iron"; }
+  else if (key === "rod") toast("获得了简易鱼竿! 🎣");
+  else if (key === "hammer") toast("获得了锤子! 🔨 可以敲椰子了");
+  else if (key === "purifier") toast("获得了净水过滤器! 🚰 开始缓慢产水");
+  else if (key === "dryer") toast("获得了晒鱼架! 🍢 现在可以晒鱼干喂宠物了");
+  else toast(`获得了${def.name}`);
 
   checkBuildAchievements();
-  setWorkshopFeedback("build_" + key, true);
   updateUI();
   save();
 }
@@ -1574,7 +1654,7 @@ const ACHIEVEMENTS = [
   { id: "pet_starve", cat: "pet", name: "它没事,它理解你", desc: "宠物饱食度降到0", hidden: true },
 
   // 🪞 奇幻镜
-  { id: "mirror_unlock", cat: "hidden", name: "大自然的馈赠", desc: "鱼竿升级后,第一次在溪流钓到鱼", hidden: true, reward: () => { state.mirrorUnlocked = true; } },
+  { id: "mirror_unlock", cat: "hidden", name: "大自然的馈赠", desc: "鱼竿升级后,第一次钓到鱼", hidden: true, reward: () => { state.mirrorUnlocked = true; } },
 ];
 const ACHV_CATEGORY_LABEL = { fish: "🎣 钓鱼类", build: "🪵 建造类", zone: "🌊 流域类", hidden: "😴 玄学/隐藏类", pet: "🐾 宠物类" };
 
@@ -1663,7 +1743,7 @@ function checkFishAchievements(speciesKey, hit) {
     if (def.rarity === "common" && entry && entry.count >= 50) unlockAchievement("same_fish_50");
     if (speciesKey === "shrimp" && entry && entry.count >= 10) unlockAchievement("shrimp_10");
     if (def.rarity === "legendary") unlockAchievement("first_legendary");
-    if (state.rodLevel >= 1 && state.zone === "stream" && !state.mirrorUnlocked) unlockAchievement("mirror_unlock");
+    if (state.rodLevel >= 1 && !state.mirrorUnlocked) unlockAchievement("mirror_unlock");
   } else {
     state.stats.consecutiveMisses += 1;
     state.stats.consecutiveHits = 0;
@@ -1865,9 +1945,7 @@ function updateUI() {
   }
 
   renderFishRow();
-  renderRefillRow();
   renderBaitDropdown();
-  renderRefillDropdown();
   syncDropdownVisibility();
   refreshOpenWorkshopPanels();
   renderGuide();
@@ -1878,9 +1956,9 @@ function updateUI() {
 // ====== 第一行: 钓鱼按钮 ======
 function baitDefs() {
   return {
-    seaweed: { label: "水草饵", bonus: 0, stock: state.res.seaweed },
-    bread: { label: "面包饵", bonus: 0.10, stock: state.res.bread },
-    spam: { label: "午餐肉饵", bonus: 0.10, stock: state.res.spam },
+    seaweed: { label: "水草饵", rareX: 1.0, legendaryX: 1.0, stock: state.res.seaweed },
+    bread:   { label: "面包饵", rareX: 1.4, legendaryX: 1.6, stock: state.res.bread },
+    spam:    { label: "午餐肉饵", rareX: 1.6, legendaryX: 2.0, stock: state.res.spam },
   };
 }
 
@@ -1914,7 +1992,9 @@ function renderFishRow() {
       progressWrap.classList.remove("hidden");
       progressFill.style.width = `${progressPct}%`;
     } else if (fishingState === "biting") {
-      fishBtn.textContent = "⬆️ 拉线!";
+      const biteLabel = fishingBiteTier === "legendary" ? "⬆️ 传说鱼!精准拉线!" :
+                        fishingBiteTier === "rare"      ? "⬆️ 稀有鱼!精准拉线!" : "⬆️ 拉线!";
+      fishBtn.textContent = biteLabel;
       fishBtn.disabled = false;
       fishBtn.classList.add("biting");
       progressWrap.classList.remove("hidden");
@@ -1931,8 +2011,9 @@ function renderFishRow() {
   progressWrap.classList.add("hidden");
   const defs = baitDefs();
   const cur = defs[selectedBait] || defs.seaweed;
-  const chancePct = displayChancePct(Math.min(1, rodChance() + cur.bonus));
-  fishBtn.textContent = `🎣 钓鱼-${cur.label} (${chancePct}%, 库存${Math.floor(cur.stock)})`;
+  const chancePct = displayChancePct(rodChance());
+  const rareInfo = cur.rareX > 1.0 ? ` 稀有×${cur.rareX.toFixed(1)}` : "";
+  fishBtn.textContent = `🎣 钓鱼-${cur.label} (${chancePct}%${rareInfo} 库存${Math.floor(cur.stock)})`;
   fishBtn.disabled = cur.stock < 1 || state.energy <= 0;
   arrowBtn.disabled = false;
 }
@@ -1946,65 +2027,11 @@ function renderBaitDropdown() {
   Object.entries(defs).forEach(([key, def]) => {
     const item = document.createElement("button");
     item.className = "bait-option" + (key === selectedBait ? " selected" : "");
-    item.textContent = `${def.label}${def.bonus > 0 ? ` (+${Math.round(def.bonus * 100)}%)` : ""} 库存${Math.floor(def.stock)}`;
+    item.textContent = `${def.label}${def.rareX > 1.0 ? ` 稀有×${def.rareX.toFixed(1)}` : ""} 库存${Math.floor(def.stock)}`;
     item.onclick = () => { selectedBait = key; baitDropdownOpen = false; updateUI(); };
     list.appendChild(item);
   });
   box.appendChild(list);
-}
-
-// ====== 第四行: 补充精力 (下拉, 列出所有食物) ======
-function doRefillEat(key) {
-  if (state.energy >= 100) return;
-  doEat(key);
-}
-
-function renderRefillRow() {
-  const btn = document.getElementById("btn-refill-toggle");
-  const full = state.energy >= 100;
-  btn.classList.toggle("full", full);
-  btn.querySelector(".refill-btn-label").textContent = full ? "⚡ 精力已满" : "⚡ 补充精力";
-}
-
-function renderRefillDropdown() {
-  const list = document.getElementById("refill-dropdown-list");
-  list.innerHTML = "";
-  const full = state.energy >= 100;
-
-  const addRow = (icon, label, detail, stockText, btnLabel, onClick, disabled) => {
-    const row = document.createElement("div");
-    row.className = "refill-row";
-    row.innerHTML = `
-      <div class="refill-row-info"><span class="refill-row-icon">${icon}</span> <b>${label}</b> ${detail}<br><span class="refill-row-stock">${stockText}</span></div>
-      <button class="build-btn" ${disabled ? "disabled" : ""}>${btnLabel}</button>
-    `;
-    // 阻止事件冒泡到 document 的"点击外部关闭下拉"监听: 否则按钮点击后这一行DOM被
-    // updateUI()重新渲染替换掉, 事件冒泡时找不到原节点的父级, 会被误判为"点了外面"而关闭面板
-    row.querySelector("button").onclick = (e) => { e.stopPropagation(); onClick(); };
-    list.appendChild(row);
-  };
-
-  addRow("🍞", "面包", `+${FOOD_DEFS.bread.restore}精力`, `库存 ${Math.floor(state.res.bread)}`, "吃",
-    () => doRefillEat("bread"), full || state.res.bread < 1);
-  addRow("🥫", "午餐肉", `+${FOOD_DEFS.spam.restore}精力`, `库存 ${Math.floor(state.res.spam)}`, "吃",
-    () => doRefillEat("spam"), full || state.res.spam < 1);
-  addRow("🐟", "鱼", `+${FOOD_DEFS.fish.restore}精力 <span class="refill-sell-hint">⚠️ 可卖金币</span>`, `库存 ${Math.floor(state.res.fish)}`, "吃",
-    () => doRefillEat("fish"), full || state.res.fish < 1);
-  addRow("🥥", "椰子", `+${CONFIG.COCONUT_RAW_RESTORE}精力`, `库存 ${Math.floor(state.res.coconut)}`, "吃",
-    doEatCoconutRaw, state.res.coconut < 1);
-  addRow("🍖", "椰子肉", `+${FOOD_DEFS.coconut_meat.restore}精力`, `库存 ${Math.floor(state.res.coconut_meat || 0)}`, "吃",
-    doEatCoconutMeat, (state.res.coconut_meat || 0) < 1);
-  addRow("🥤", "椰子汁", `+${FOOD_DEFS.coconut_juice.restore}精力`, `库存 ${Math.floor(state.res.coconut_juice || 0)}`, "喝",
-    doEatCoconutJuice, (state.res.coconut_juice || 0) < 1);
-  addRow("🍢", "鱼干", "宠物食物", `库存 ${Math.floor(state.res.jerky)}`, "→喂宠物",
-    () => { closeAllDropdowns(); syncDropdownVisibility(); doFeedPet(); }, !state.pet || state.res.jerky < 1);
-
-  if (full) {
-    const note = document.createElement("div");
-    note.className = "refill-full-note";
-    note.textContent = "精力已满";
-    list.prepend(note);
-  }
 }
 
 // ====== 建造面板 / 打造面板 (独立入口, 固定右上角) ======
@@ -2021,14 +2048,15 @@ function costLineHtml(cost) {
   return Object.entries(cost).map(([k, v]) => {
     const have = state.res[k] || 0;
     const cls = have >= v ? "cost-ok" : "cost-bad";
-    return `<span class="${cls}">${ICONS[k]}${k}×${v}</span>`;
+    return `<span class="${cls}">${ICONS[k] || ""}${RES_LABEL[k] || k}×${v}</span>`;
   }).join(" ");
 }
 
+// 建造/打造成功不再使用卡片内弹层遮挡, 改为顶部小字 toast 提示 (见各 do* 函数里的 toast 调用)
 function feedbackOverlayHtml(key) {
   const fb = workshopFeedback[key];
-  if (!fb || Date.now() >= fb.until) return null;
-  return fb.ok ? `<div class="workshop-feedback ok">✅ 建造成功</div>` : `<div class="workshop-feedback fail">❌ 材料不足</div>`;
+  if (!fb || fb.ok || Date.now() >= fb.until) return null;
+  return `<div class="workshop-feedback fail">❌ 材料不足</div>`;
 }
 
 function renderBuildModal() {
@@ -2204,7 +2232,13 @@ function renderCraftModal() {
 }
 
 // ====== 任务指引面板 (固定右上角, 默认展开) ======
-const RES_LABEL = { wood: "木头", rope: "绳子", scrap: "废铁", iron: "铁块", seaweed: "水草", plastic: "塑料" };
+// 与 index.html #resources 面板的名称完全一致, 避免建造/打造面板出现命名不一致 (如"木材" vs "木头")
+const RES_LABEL = {
+  wood: "木头", rope: "绳子", scrap: "废铁", iron: "铁块", seaweed: "水草", plastic: "塑料",
+  coconut: "椰子", coconut_meat: "椰子肉", coconut_juice: "椰子汁",
+  bread: "面包", spam: "午餐肉", fish: "鱼", water: "净水", trash: "垃圾",
+  raftkit: "修复包", jerky: "鱼干",
+};
 
 function renderGuide() {
   const box = document.getElementById("guide-content");
@@ -2250,7 +2284,7 @@ const BAG_ITEMS = [
   { key: "coconut", icon: "🥥", name: "椰子", eat: () => doEatCoconutRaw(), eatLabel: `精力+${CONFIG.COCONUT_RAW_RESTORE}`, sellPrice: 1 },
   { key: "coconut_meat", icon: "🍖", name: "椰子肉", eat: () => doEatCoconutMeat(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
   { key: "coconut_juice", icon: "🥤", name: "椰子汁", eat: () => doEatCoconutJuice(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
-  { key: "jerky", icon: "🍢", name: "鱼干", eat: null, sellPrice: 2 },
+  { key: "jerky", icon: "🍢", name: "鱼干", eat: () => doFeedPet(), eatLabel: "宠物饱食度+", actionLabel: "喂宠物", sellPrice: 2 },
   { key: "raftkit", icon: "🧰", name: "修复包", eat: null, sellPrice: 3 },
 ];
 
@@ -2303,7 +2337,7 @@ function renderBagModal() {
       </div>
       ${expanded ? `
         <div class="bag-actions">
-          ${item.eat ? `<button class="bag-action-btn" id="bag-eat">食用 (${item.eatLabel})</button>` : ""}
+          ${item.eat ? `<button class="bag-action-btn" id="bag-eat" ${item.key === "jerky" && !state.pet ? "disabled" : ""}>${item.actionLabel || "食用"} (${item.eatLabel})</button>` : ""}
           <button class="bag-action-btn" id="bag-discard">丢弃</button>
           <button class="bag-action-btn sell" id="bag-sell">售卖 (🪙${item.sellPrice}/个)</button>
         </div>
@@ -2314,7 +2348,12 @@ function renderBagModal() {
       renderBagModal();
     };
     if (expanded) {
-      if (item.eat) card.querySelector("#bag-eat").onclick = (e) => { e.stopPropagation(); item.eat(); bagExpandedKey = null; renderBagModal(); };
+      if (item.eat) card.querySelector("#bag-eat").onclick = (e) => {
+        e.stopPropagation();
+        item.eat();
+        // 食用后保持该物品展开, 方便连续吃多个; 若数量已吃完(卡片消失)则无需处理
+        renderBagModal();
+      };
       card.querySelector("#bag-discard").onclick = (e) => { e.stopPropagation(); doDiscardBagItem(item.key, 1); };
       card.querySelector("#bag-sell").onclick = (e) => { e.stopPropagation(); doSellBagItem(item.key, 1); };
     }
@@ -2325,11 +2364,9 @@ function renderBagModal() {
 // ====== 下拉面板状态管理 ======
 function closeAllDropdowns() {
   baitDropdownOpen = false;
-  refillDropdownOpen = false;
 }
 function syncDropdownVisibility() {
   document.getElementById("bait-dropdown").classList.toggle("hidden", !baitDropdownOpen);
-  document.getElementById("refill-dropdown").classList.toggle("hidden", !refillDropdownOpen);
 }
 
 // ====== 浮动文字特效 ======
@@ -3227,6 +3264,67 @@ function drawScene() {
     ctx.globalAlpha = 1;
   }
 
+  // 精准小游戏条 (稀有/传说鱼咬钩时显示, 玩家需要点击时机令指针落在目标区间内)
+  if (fishingState === "biting" && fishingBiteTier && fishingBiteTier !== "common" && fishingBarHit === null) {
+    const now2 = Date.now();
+    if (fishingBarLastUpdate > 0) {
+      const dtSec = Math.min(0.1, (now2 - fishingBarLastUpdate) / 1000);
+      const speed = BAR_CONFIG.baseSpeedPerSec * (1 - state.rodLevel * BAR_CONFIG.speedReductionPerLevel);
+      fishingBarMarker += fishingBarDir * speed * dtSec;
+      if (fishingBarMarker >= 1) { fishingBarMarker = 1; fishingBarDir = -1; }
+      if (fishingBarMarker <= 0) { fishingBarMarker = 0; fishingBarDir = 1; }
+    }
+    fishingBarLastUpdate = now2;
+
+    const { x, y, w, h, markerH } = BAR_CONFIG;
+    const isLeg = fishingBiteTier === "legendary";
+    const accent = isLeg ? "#ffd86b" : "#5bd17a";
+    const inZone = fishingBarMarker >= fishingBarTargetY && fishingBarMarker <= fishingBarTargetY + fishingBarTargetH;
+
+    // 背景板
+    ctx.fillStyle = "rgba(8,18,30,0.88)";
+    ctx.fillRect(x - 4, y - 22, w + 8, h + 28);
+
+    // 标签
+    ctx.fillStyle = accent;
+    ctx.font = "bold 10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(isLeg ? "✨传说" : "💖稀有", x + w / 2, y - 7);
+    ctx.textAlign = "left";
+
+    // 条背景
+    ctx.fillStyle = "#0a1622";
+    ctx.fillRect(x, y, w, h);
+
+    // 目标区间
+    ctx.fillStyle = accent;
+    ctx.globalAlpha = 0.45;
+    ctx.fillRect(x, y + fishingBarTargetY * h, w, fishingBarTargetH * h);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y + fishingBarTargetY * h, w, fishingBarTargetH * h);
+
+    // 移动指针
+    const markerPxY = y + fishingBarMarker * h - markerH / 2;
+    ctx.fillStyle = inZone ? "#ffffff" : "#888888";
+    ctx.fillRect(x - 3, markerPxY, w + 6, markerH);
+
+    // 外框
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+
+    // 提示
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "9px sans-serif";
+    ctx.textAlign = "center";
+    ctx.globalAlpha = 0.85;
+    ctx.fillText("拉线!", x + w / 2, y + h + 14);
+    ctx.globalAlpha = 1;
+    ctx.textAlign = "left";
+  }
+
   // 木筏彩旗 (商店购买的装饰, 固定立在木筏左侧)
   if (state.shopOwned.includes("flag")) {
     const poleX = Math.max(8, 180 - raftLayout.totalW / 2 - 10);
@@ -3479,20 +3577,12 @@ document.getElementById("shop-tab-sell").onclick = () => { shopTab = "sell"; ren
 document.getElementById("shop-tab-buy").onclick = () => { shopTab = "buy"; renderShopModal(); };
 startOnboardingIfNeeded();
 
-// ====== 核心操作区: 钓鱼/工坊/补充精力 绑定 ======
+// ====== 核心操作区: 钓鱼/工坊 绑定 ======
 document.getElementById("btn-fish-cast").onclick = () => doFishing(selectedBait);
 document.getElementById("btn-bait-arrow").onclick = () => {
   baitDropdownOpen = !baitDropdownOpen;
-  refillDropdownOpen = false;
   syncDropdownVisibility();
 };
-document.getElementById("btn-refill-toggle").onclick = () => {
-  refillDropdownOpen = !refillDropdownOpen;
-  baitDropdownOpen = false;
-  renderRefillDropdown();
-  syncDropdownVisibility();
-};
-document.getElementById("refill-dropdown-close").onclick = () => { refillDropdownOpen = false; syncDropdownVisibility(); };
 
 document.getElementById("btn-build").onclick = openBuildModal;
 document.getElementById("build-close").onclick = () => {
@@ -3525,7 +3615,7 @@ document.getElementById("bottle-claim").onclick = claimBottleReward;
 // 点击下拉面板/按钮以外的区域, 自动收起所有下拉
 document.addEventListener("click", (e) => {
   if (e.target.closest(".dropdown-root")) return;
-  if (baitDropdownOpen || refillDropdownOpen) {
+  if (baitDropdownOpen) {
     closeAllDropdowns();
     syncDropdownVisibility();
   }

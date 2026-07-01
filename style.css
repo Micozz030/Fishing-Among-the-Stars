@@ -254,34 +254,6 @@ html, body {
 }
 .bait-option.selected { border-color: #ffd86b; color: #ffd86b; }
 
-/* 第四行: 补充精力 下拉列表内容 */
-#refill-dropdown-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 26px; /* 让出右上角关闭按钮空间 */
-}
-.refill-row {
-  background: #11253a;
-  border: 2px solid #2a4a64;
-  padding: 8px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.refill-row-info { font-size: 12px; line-height: 1.4; }
-.refill-row-icon { font-size: 14px; }
-.refill-row-stock { font-size: 10.5px; opacity: 0.75; }
-.refill-sell-hint { color: #ffd86b; font-size: 10px; }
-.refill-full-note {
-  text-align: center;
-  font-size: 12px;
-  color: #ffd86b;
-  font-weight: bold;
-  padding: 6px 0 2px;
-}
-
 .build-collapse-toggle {
   background: #16324a;
   border: 2px solid #2a4a64;
@@ -293,22 +265,6 @@ html, body {
   text-align: left;
 }
 .build-collapse-toggle:active { background: #11253a; }
-
-/* 补充精力按钮 (低调) */
-.refill-btn-row {
-  width: 100%;
-  min-height: 36px;
-  padding: 6px 10px;
-  font-size: 11.5px;
-  font-weight: bold;
-  border: 1px solid #2a4a64;
-  background: #16324a;
-  color: #cfe8f0;
-  text-align: center;
-}
-.refill-btn-row.full { opacity: 0.6; }
-.refill-btn-row:active { background: #11253a; }
-.refill-btn-label { margin-right: 2px; }
 
 /* ====== 通用弹窗/面板关闭按钮 ====== */
 .close-btn {
@@ -423,6 +379,13 @@ html, body {
 
 .build-box, .craft-box { width: 320px; text-align: left; }
 .build-box h2, .craft-box h2 { text-align: center; }
+/* 建造/打造面板内容可滚动, 关闭按钮需脱离滚动容器, 固定贴在屏幕右上角 */
+#build-modal .close-btn, #craft-modal .close-btn {
+  position: fixed;
+  top: 84px;
+  right: 14px;
+  z-index: 120;
+}
 .workshop-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
