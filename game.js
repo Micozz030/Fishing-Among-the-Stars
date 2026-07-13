@@ -45,22 +45,40 @@ const CONFIG = {
   },
 };
 
-// ====== 钓鱼小游戏参数 (仿星露谷: 点击/点按让指针上浮, 松手自然下沉, 需让指针停留在移动的目标区间内) ======
+// ====== 钓鱼小游戏参数 (时机型收杆: 鱼图标不规则游动, 绿色钩取区间规律移动, 点击瞬间鱼在区间内才算命中) ======
 const MINIGAME_CONFIG = {
-  barW: 48, barH: 200, pointerH: 10,   // 主条尺寸 + 指针高度(px)
+  barW: 48, barH: 200, pointerH: 10,   // 主条尺寸 + 鱼图标高度(px)
   timerBarW: 10,                        // 右侧倒计时条宽度(px)
-  rareTargetBase: 80,          // 稀有鱼目标区间基础高度(px)
-  legendaryTargetBase: 50,     // 传说鱼目标区间基础高度(px)
-  bonusPxPerLevel: 4,          // 每级鱼竿额外增加目标区间高度(px)
-  rareZoneSpeed: 0.9,          // 稀有鱼目标区间移动速度(px/帧, 慢)
-  legendaryZoneSpeed: 1.6,     // 传说鱼目标区间移动速度(px/帧, 快)
-  speedReductionPerLevel: 0.05, // 每级鱼竿让目标区间移动再减速5%
-  riseStep: 20,                 // 每次点击/点按指针上浮量(px)
-  fallStep: 3,                  // 指针每帧自然下沉量(px)
-  rareDurationMs: 3000,
-  legendaryDurationMs: 5000,
-  successRatio: 0.6,            // 指针需在目标区间内停留的最低帧数占比
-  flashDurationMs: 500,         // 成功/失败结算后的闪光展示时长
+
+  // --- 绿色钩取区间 (规律的乒乓往返运动) ---
+  rareZoneH: 80,                // 稀有鱼钩取区间基础高度(px)
+  legendaryZoneH: 50,           // 传说鱼钩取区间基础高度(px)
+  zoneBonusPxPerLevel: 4,       // 每级鱼竿额外增加区间高度(px), 鱼竿越好玩家的窗口越大
+  rareZoneSpeed: 0.8,           // 稀有鱼钩取区间移动速度(px/帧)
+  legendaryZoneSpeed: 1.2,      // 传说鱼钩取区间移动速度(px/帧)
+  zoneSpeedReductionPerLevel: 0.05, // 每级鱼竿让区间移动再减速5% (更容易跟上)
+
+  // --- 鱼图标 (不规则游动: 随机换向变速, 平滑过渡) ---
+  rareFishSpeed: 1.2,           // 稀有鱼基础游动速度(px/帧)
+  legendaryFishSpeed: 2.2,      // 传说鱼基础游动速度(px/帧)
+  fishBurstMult: 2.0,           // 鱼随机爆发时的最高速度倍率
+  fishRedirectMinMs: 300,       // 鱼最短多久重新选择一次目标速度
+  fishRedirectMaxMs: 800,       // 鱼最长多久重新选择一次目标速度
+  fishLerpRate: 0.12,           // 鱼当前速度向目标速度平滑过渡的插值系数(每帧)
+  fishStartledMult: 1.8,        // 玩家点空后, 鱼受惊速度倍率
+  fishStartledDurationMs: 1000, // 受惊状态持续时间
+  fishHookedSpeedMult: 1.3,     // 传说鱼第一次被钩住后, 剩余时间内速度提升30%
+
+  // --- 命中/尝试次数 ---
+  rareHooksNeeded: 1,           // 稀有鱼需要成功钩取次数
+  rareAttemptsAllowed: 3,       // 稀有鱼总尝试次数
+  legendaryHooksNeeded: 2,      // 传说鱼需要成功钩取次数
+  legendaryAttemptsAllowed: 4,  // 传说鱼总尝试次数
+
+  rareDurationMs: 8000,
+  legendaryDurationMs: 12000,
+  flashDurationMs: 500,         // 结算后的闪光展示时长 (仅在最终成功/失败时使用)
+  tapFlashDurationMs: 260,      // 每次点击瞬间的命中/落空反馈闪光时长
 };
 
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
@@ -1105,29 +1123,47 @@ function resolveFishCatch() {
   save();
 }
 
-// ====== 稀有/传说鱼: 精准小游戏 (仿星露谷钓鱼条) ======
-// 指针点击/点按上浮, 松手自然下沉; 目标区间自动来回移动; 倒计时内指针停留在区间内的帧数占比达标即成功
+// ====== 稀有/传说鱼: 时机型收杆小游戏 ======
+// 鱼图标在条内不规则游动(随机变速换向, 平滑过渡); 绿色钩取区间规律往返移动;
+// 玩家点击瞬间若鱼图标落在钩取区间内则命中一次, 累计到所需命中次数即成功; 落空消耗一次尝试并让鱼受惊加速
 function startMinigame(tier) {
   const isLeg = tier === "legendary";
-  const baseTarget = isLeg ? MINIGAME_CONFIG.legendaryTargetBase : MINIGAME_CONFIG.rareTargetBase;
-  const zoneH = Math.min(MINIGAME_CONFIG.barH * 0.9, baseTarget + state.rodLevel * MINIGAME_CONFIG.bonusPxPerLevel);
-  const baseSpeed = isLeg ? MINIGAME_CONFIG.legendaryZoneSpeed : MINIGAME_CONFIG.rareZoneSpeed;
-  const zoneSpeed = baseSpeed * (1 - state.rodLevel * MINIGAME_CONFIG.speedReductionPerLevel);
+  const zoneH = Math.min(MINIGAME_CONFIG.barH * 0.9,
+    (isLeg ? MINIGAME_CONFIG.legendaryZoneH : MINIGAME_CONFIG.rareZoneH) + state.rodLevel * MINIGAME_CONFIG.zoneBonusPxPerLevel);
+  const zoneBaseSpeed = isLeg ? MINIGAME_CONFIG.legendaryZoneSpeed : MINIGAME_CONFIG.rareZoneSpeed;
+  const zoneSpeed = zoneBaseSpeed * (1 - state.rodLevel * MINIGAME_CONFIG.zoneSpeedReductionPerLevel);
+  const fishBaseSpeed = isLeg ? MINIGAME_CONFIG.legendaryFishSpeed : MINIGAME_CONFIG.rareFishSpeed;
   const durationMs = isLeg ? MINIGAME_CONFIG.legendaryDurationMs : MINIGAME_CONFIG.rareDurationMs;
+  const hooksNeeded = isLeg ? MINIGAME_CONFIG.legendaryHooksNeeded : MINIGAME_CONFIG.rareHooksNeeded;
+  const attemptsAllowed = isLeg ? MINIGAME_CONFIG.legendaryAttemptsAllowed : MINIGAME_CONFIG.rareAttemptsAllowed;
 
   minigame = {
     tier,
-    pointerY: (MINIGAME_CONFIG.barH - MINIGAME_CONFIG.pointerH) / 2,
+    // 鱼图标游动状态
+    fishY: Math.random() * (MINIGAME_CONFIG.barH - MINIGAME_CONFIG.pointerH),
+    fishVel: 0,
+    fishTargetVel: (Math.random() < 0.5 ? -1 : 1) * fishBaseSpeed,
+    fishNextRedirectAt: 0,        // 0 表示下一帧立刻重新选一次目标速度
+    fishBaseSpeed,
+    fishStartledUntil: 0,         // 玩家点空后的受惊状态结束时间戳
+    fishHookedSpeedBonus: 1,      // 传说鱼首次命中后触发的永久提速倍率
+
+    // 绿色钩取区间 (规律乒乓)
     zoneY: Math.random() * (MINIGAME_CONFIG.barH - zoneH),
     zoneH,
     zoneDir: Math.random() < 0.5 ? 1 : -1,
     zoneSpeed,
+
     startAt: Date.now(),
     durationMs,
-    framesTotal: 0,
-    framesInZone: 0,
+    hooksNeeded,
+    hooksDone: 0,
+    attemptsAllowed,
+    attemptsUsed: 0,
+
     resolved: null,      // null | "success" | "fail"
     resolvedAt: 0,
+    tapFlash: null,       // { type: "hit"|"miss", until } 点击瞬间的命中/落空反馈
   };
   fishingState = "minigame";
   fishingPhaseDur = durationMs;
@@ -1141,22 +1177,35 @@ function updateMinigame() {
   if (!minigame) return;
   const now = Date.now();
   if (minigame.resolved === null) {
-    minigame.pointerY = Math.max(0, minigame.pointerY - MINIGAME_CONFIG.fallStep);
+    // 鱼: 每隔一段随机时间重新选择一次目标速度(方向+可能的爆发), 当前速度向目标速度平滑插值
+    if (now >= minigame.fishNextRedirectAt) {
+      const burst = Math.random() < 0.3 ? (1 + Math.random() * (MINIGAME_CONFIG.fishBurstMult - 1)) : 1;
+      const dir = Math.random() < 0.5 ? -1 : 1;
+      minigame.fishTargetVel = dir * minigame.fishBaseSpeed * burst;
+      minigame.fishNextRedirectAt = now + MINIGAME_CONFIG.fishRedirectMinMs +
+        Math.random() * (MINIGAME_CONFIG.fishRedirectMaxMs - MINIGAME_CONFIG.fishRedirectMinMs);
+    }
+    minigame.fishVel += (minigame.fishTargetVel - minigame.fishVel) * MINIGAME_CONFIG.fishLerpRate;
 
+    const startledActive = minigame.fishStartledUntil > now;
+    const speedMult = (startledActive ? MINIGAME_CONFIG.fishStartledMult : 1) * minigame.fishHookedSpeedBonus;
+    const maxFishY = MINIGAME_CONFIG.barH - MINIGAME_CONFIG.pointerH;
+    minigame.fishY += minigame.fishVel * speedMult;
+    if (minigame.fishY <= 0) { minigame.fishY = 0; minigame.fishVel = Math.abs(minigame.fishVel); minigame.fishTargetVel = Math.abs(minigame.fishTargetVel); }
+    if (minigame.fishY >= maxFishY) { minigame.fishY = maxFishY; minigame.fishVel = -Math.abs(minigame.fishVel); minigame.fishTargetVel = -Math.abs(minigame.fishTargetVel); }
+
+    // 绿色钩取区间: 匀速乒乓往返
     const maxZoneY = MINIGAME_CONFIG.barH - minigame.zoneH;
     minigame.zoneY += minigame.zoneDir * minigame.zoneSpeed;
     if (minigame.zoneY <= 0) { minigame.zoneY = 0; minigame.zoneDir = 1; }
     if (minigame.zoneY >= maxZoneY) { minigame.zoneY = maxZoneY; minigame.zoneDir = -1; }
 
-    minigame.framesTotal += 1;
-    const pointerCenter = minigame.pointerY + MINIGAME_CONFIG.pointerH / 2;
-    if (pointerCenter >= minigame.zoneY && pointerCenter <= minigame.zoneY + minigame.zoneH) {
-      minigame.framesInZone += 1;
-    }
-
-    if (now - minigame.startAt >= minigame.durationMs) {
-      const ratio = minigame.framesTotal > 0 ? minigame.framesInZone / minigame.framesTotal : 0;
-      minigame.resolved = ratio >= MINIGAME_CONFIG.successRatio ? "success" : "fail";
+    // 尝试次数耗尽仍未达标 -> 失败; 时间耗尽仍未达标 -> 失败 (由 finalizeMinigameCatch 统一结算)
+    if (minigame.attemptsUsed >= minigame.attemptsAllowed && minigame.hooksDone < minigame.hooksNeeded) {
+      minigame.resolved = "fail";
+      minigame.resolvedAt = now;
+    } else if (now - minigame.startAt >= minigame.durationMs) {
+      minigame.resolved = "fail";
       minigame.resolvedAt = now;
     }
   } else if (now - minigame.resolvedAt >= MINIGAME_CONFIG.flashDurationMs) {
@@ -1164,9 +1213,34 @@ function updateMinigame() {
   }
 }
 
+// 点击/点按瞬间判定: 鱼图标中心此刻是否落在绿色钩取区间内
 function onMinigameTap() {
   if (fishingState !== "minigame" || !minigame || minigame.resolved !== null) return;
-  minigame.pointerY = Math.min(MINIGAME_CONFIG.barH - MINIGAME_CONFIG.pointerH, minigame.pointerY + MINIGAME_CONFIG.riseStep);
+  const now = Date.now();
+  const fishCenter = minigame.fishY + MINIGAME_CONFIG.pointerH / 2;
+  const inZone = fishCenter >= minigame.zoneY && fishCenter <= minigame.zoneY + minigame.zoneH;
+  minigame.attemptsUsed += 1;
+
+  if (inZone) {
+    minigame.hooksDone += 1;
+    minigame.tapFlash = { type: "hit", until: now + MINIGAME_CONFIG.tapFlashDurationMs };
+    if (minigame.hooksDone >= minigame.hooksNeeded) {
+      minigame.resolved = "success";
+      minigame.resolvedAt = now;
+      return;
+    }
+    if (minigame.tier === "legendary") {
+      minigame.fishHookedSpeedBonus = MINIGAME_CONFIG.fishHookedSpeedMult;
+      toast("钩住了!再来一次!");
+    }
+  } else {
+    minigame.tapFlash = { type: "miss", until: now + MINIGAME_CONFIG.tapFlashDurationMs };
+    minigame.fishStartledUntil = now + MINIGAME_CONFIG.fishStartledDurationMs;
+    if (minigame.attemptsUsed >= minigame.attemptsAllowed) {
+      minigame.resolved = "fail";
+      minigame.resolvedAt = now;
+    }
+  }
 }
 
 function ensureMinigameOverlay() {
@@ -1187,6 +1261,7 @@ function removeMinigameOverlay() {
 // 在游戏画布(360x420)中央绘制小游戏浮层: 目标区间(绿色/自动移动) + 指针(点击上浮/自动下沉) + 右侧倒计时条
 function drawMinigame() {
   if (!minigame) return;
+  const now = Date.now();
   const barW = MINIGAME_CONFIG.barW, barH = MINIGAME_CONFIG.barH;
   const x = 180 - barW / 2 - 8;
   const y = (420 - barH) / 2 - 6;
@@ -1198,7 +1273,7 @@ function drawMinigame() {
   ctx.fillRect(0, 0, 360, 420);
 
   ctx.fillStyle = "rgba(8,18,30,0.92)";
-  ctx.fillRect(x - 14, y - 26, barW + MINIGAME_CONFIG.timerBarW + 28, barH + 44);
+  ctx.fillRect(x - 14, y - 40, barW + MINIGAME_CONFIG.timerBarW + 28, barH + 60);
 
   // 顶部标签: 结果未确认前显示❓, 结算后才揭晓
   let label = "❓";
@@ -1207,13 +1282,28 @@ function drawMinigame() {
   ctx.fillStyle = accent;
   ctx.font = "bold 13px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText(label, x + barW / 2, y - 9);
+  ctx.fillText(label, x + barW / 2, y - 23);
+
+  // 剩余尝试次数 ○○○ (实心=剩余, 空心=已用)
+  const remainingAttempts = Math.max(0, minigame.attemptsAllowed - minigame.attemptsUsed);
+  let dotsStr = "";
+  for (let i = 0; i < minigame.attemptsAllowed; i++) dotsStr += i < remainingAttempts ? "●" : "○";
+  ctx.fillStyle = "#cfe8f0";
+  ctx.font = "11px sans-serif";
+  ctx.fillText(dotsStr, x + barW / 2, y - 7);
+
+  // 传说鱼需要多次命中: 显示 🪝 已命中/所需
+  if (minigame.hooksNeeded > 1) {
+    ctx.fillStyle = accent;
+    ctx.font = "bold 11px sans-serif";
+    ctx.fillText(`🪝 ${minigame.hooksDone}/${minigame.hooksNeeded}`, x + barW / 2, y + 9);
+  }
 
   // 主条背景
   ctx.fillStyle = "#0a1622";
   ctx.fillRect(x, y, barW, barH);
 
-  // 目标区间 (zoneY 以条底为0点, 需换算为canvas从上往下的像素坐标)
+  // 绿色钩取区间 (zoneY 以条底为0点, 需换算为canvas从上往下的像素坐标)
   const zoneTopPx = y + (barH - minigame.zoneY - minigame.zoneH);
   ctx.fillStyle = accent;
   ctx.globalAlpha = 0.45;
@@ -1223,26 +1313,39 @@ function drawMinigame() {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(x, zoneTopPx, barW, minigame.zoneH);
 
-  // 指针
-  const pointerTopPx = y + (barH - minigame.pointerY - MINIGAME_CONFIG.pointerH);
-  const pointerCenter = minigame.pointerY + MINIGAME_CONFIG.pointerH / 2;
-  const inZone = pointerCenter >= minigame.zoneY && pointerCenter <= minigame.zoneY + minigame.zoneH;
-  ctx.fillStyle = inZone ? "#ffffff" : "#ff8f6b";
-  ctx.fillRect(x - 3, pointerTopPx, barW + 6, MINIGAME_CONFIG.pointerH);
+  // 鱼图标 (不规则游动)
+  const fishTopPx = y + (barH - minigame.fishY - MINIGAME_CONFIG.pointerH);
+  const fishCenter = minigame.fishY + MINIGAME_CONFIG.pointerH / 2;
+  const inZone = fishCenter >= minigame.zoneY && fishCenter <= minigame.zoneY + minigame.zoneH;
+  const startledActive = minigame.fishStartledUntil > now;
+  ctx.font = "16px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillStyle = startledActive ? "#ff8f6b" : (inZone ? "#ffffff" : "#cfe8f0");
+  ctx.fillText(isLeg ? "✨" : "🐟", x + barW / 2, fishTopPx + MINIGAME_CONFIG.pointerH + 4);
 
   // 外框: 成功闪金光, 失败抖动闪红光
   let frameColor = accent, shakeX = 0;
   if (minigame.resolved === "success") frameColor = "#ffe17a";
-  else if (minigame.resolved === "fail") { frameColor = "#ff5c4c"; shakeX = Math.sin(Date.now() / 30) * 3; }
+  else if (minigame.resolved === "fail") { frameColor = "#ff5c4c"; shakeX = Math.sin(now / 30) * 3; }
   ctx.strokeStyle = frameColor;
   ctx.lineWidth = 2.5;
   ctx.strokeRect(x + shakeX, y, barW, barH);
+
+  // 点击瞬间反馈: 命中(绿色光环)/落空(红色光环), 短暂显示后自动消失
+  if (minigame.tapFlash && now < minigame.tapFlash.until) {
+    const ringAlpha = (minigame.tapFlash.until - now) / MINIGAME_CONFIG.tapFlashDurationMs;
+    ctx.globalAlpha = ringAlpha * 0.8;
+    ctx.strokeStyle = minigame.tapFlash.type === "hit" ? "#5bd17a" : "#ff5c4c";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x - 6, y - 6, barW + 12, barH + 12);
+    ctx.globalAlpha = 1;
+  }
 
   // 右侧倒计时条
   const tbX = x + barW + 10;
   ctx.fillStyle = "#0a1622";
   ctx.fillRect(tbX, y, MINIGAME_CONFIG.timerBarW, barH);
-  const elapsed = Math.min(minigame.durationMs, Date.now() - minigame.startAt);
+  const elapsed = Math.min(minigame.durationMs, now - minigame.startAt);
   const remainRatio = minigame.resolved === null
     ? Math.max(0, 1 - elapsed / minigame.durationMs)
     : (minigame.resolved === "success" ? 1 : 0);
@@ -1258,7 +1361,7 @@ function drawMinigame() {
     ctx.fillStyle = "#ffffff";
     ctx.font = "10px sans-serif";
     ctx.globalAlpha = 0.85;
-    ctx.fillText("点击屏幕保持指针在区间内!", x + barW / 2, y + barH + 16);
+    ctx.fillText("鱼进入绿色区间时点击屏幕收杆!", x + barW / 2, y + barH + 16);
     ctx.globalAlpha = 1;
   }
   ctx.textAlign = "left";
