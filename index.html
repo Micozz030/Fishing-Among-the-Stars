@@ -46,58 +46,52 @@
   <div id="legendary-flash"></div>
 
   <div id="panel">
-    <div id="zone-row">
-      <button id="btn-guide" class="big-btn secondary">📋 指引</button>
-      <button id="btn-bag" class="big-btn secondary">🎒 背包</button>
-      <button id="btn-bestiary" class="big-btn secondary">📖 图鉴</button>
-      <button id="btn-blueprints" class="big-btn secondary">📐 图纸</button>
-      <button id="btn-skilltree" class="big-btn secondary">🌳 技能树</button>
-      <button id="btn-achievements" class="big-btn secondary">🏆 成就</button>
-      <button id="btn-shop" class="big-btn secondary">🏪 商店</button>
-      <button id="btn-zone-switch" class="big-btn secondary">⛵ 前往河流</button>
-    </div>
-
-    <div id="resources">
-      <div class="res" id="res-wood">🪵 木头: <span>0</span></div>
-      <div class="res" id="res-rope">🧵 绳子: <span>0</span></div>
-      <div class="res" id="res-scrap">🔧 废铁: <span>0</span></div>
-      <div class="res" id="res-iron">🔩 铁块: <span>0</span></div>
-      <div class="res" id="res-seaweed">🌿 水草: <span>0</span></div>
-      <div class="res" id="res-plastic">♻️ 塑料: <span>0</span></div>
-      <div class="res" id="res-coconut">🥥 椰子: <span>0</span></div>
-      <div class="res" id="res-coconut_meat">🍖 椰子肉: <span>0</span></div>
-      <div class="res" id="res-coconut_juice">🥤 椰子汁: <span>0</span></div>
-      <div class="res" id="res-bread">🍞 面包: <span>0</span></div>
-      <div class="res" id="res-spam">🥫 午餐肉: <span>0</span></div>
-      <div class="res" id="res-fish">🐟 鱼: <span>0</span></div>
-      <div class="res" id="res-water">💧 净水: <span>0</span></div>
-      <div class="res" id="res-trash">🗑️ 垃圾: <span>0</span></div>
-      <div class="res" id="res-raftkit">🧰 修复包: <span>0</span></div>
-      <div class="res" id="res-jerky">🍢 鱼干: <span>0</span></div>
-    </div>
-
-    <!-- 第一行: 钓鱼 (最突出, 含饵料下拉 + 动画进度条) -->
-    <div class="action-row" id="row-fish">
-      <div class="dropdown-root" id="bait-root">
-        <div class="bait-main-row">
-          <button id="btn-fish-cast" class="fish-cast-btn">🎣 钓鱼</button>
-          <button id="btn-bait-arrow" class="bait-arrow-btn">▾</button>
-        </div>
-        <div id="fish-progress" class="fish-progress hidden"><div id="fish-progress-fill" class="fish-progress-fill"></div></div>
-        <div id="bait-dropdown" class="dropdown-panel hidden"></div>
+    <!-- 资源速览条: 6个常用资源的紧凑图标+数字, 点击任意处打开背包查看完整库存 -->
+    <div id="resource-strip-wrap">
+      <div id="resource-strip">
+        <div class="res-chip" id="res-wood">🪵<span>0</span></div>
+        <div class="res-chip" id="res-rope">🧵<span>0</span></div>
+        <div class="res-chip" id="res-iron">🔩<span>0</span></div>
+        <div class="res-chip" id="res-fish">🐟<span>0</span></div>
+        <div class="res-chip" id="res-seaweed">🌿<span>0</span></div>
+        <div class="res-chip" id="res-spam">🥫<span>0</span></div>
       </div>
     </div>
 
-    <!-- 第二行: 拉钩打捞 + 翻垃圾 -->
-    <div class="action-row two-col">
-      <button id="btn-fish-loot" class="big-btn">🪝 拉钩打捞</button>
-      <button id="btn-rummage" class="big-btn secondary">🗑️ 翻垃圾</button>
+    <!-- 主操作区(拇指热区): 钓鱼(最突出, 含饵料下拉+动画进度条) + 拉钩打捞 + 翻垃圾 -->
+    <div id="primary-actions">
+      <div class="action-row" id="row-fish">
+        <div class="dropdown-root" id="bait-root">
+          <div class="bait-main-row">
+            <button id="btn-fish-cast" class="fish-cast-btn">🎣 钓鱼</button>
+            <button id="btn-bait-arrow" class="bait-arrow-btn">▾</button>
+          </div>
+          <div id="fish-progress" class="fish-progress hidden"><div id="fish-progress-fill" class="fish-progress-fill"></div></div>
+          <div id="bait-dropdown" class="dropdown-panel hidden"></div>
+        </div>
+      </div>
+      <div class="action-row two-col">
+        <button id="btn-fish-loot" class="big-btn">🪝 拉钩打捞</button>
+        <button id="btn-rummage" class="big-btn secondary">🗑️ 翻垃圾</button>
+      </div>
     </div>
 
-    <!-- 第三行: 建造 + 打造 (独立入口) -->
+    <!-- 次级操作区: 建造 + 打造 -->
     <div class="action-row two-col">
       <button id="btn-build" class="big-btn secondary">🔨 建造</button>
       <button id="btn-craft" class="big-btn secondary">⚒️ 打造</button>
+    </div>
+
+    <!-- 图标导航栏 (低频功能入口, 长按/悬停查看名称) -->
+    <div id="zone-row">
+      <button id="btn-guide" class="icon-nav-btn" title="任务指引">📋</button>
+      <button id="btn-bag" class="icon-nav-btn" title="背包">🎒</button>
+      <button id="btn-bestiary" class="icon-nav-btn" title="钓鱼图鉴">📖</button>
+      <button id="btn-blueprints" class="icon-nav-btn" title="图纸收藏">📐</button>
+      <button id="btn-skilltree" class="icon-nav-btn" title="技能树">🌳</button>
+      <button id="btn-achievements" class="icon-nav-btn" title="成就">🏆</button>
+      <button id="btn-shop" class="icon-nav-btn" title="商店">🏪</button>
+      <button id="btn-zone-switch" class="icon-nav-btn" title="前往河流">⛵</button>
     </div>
   </div>
 

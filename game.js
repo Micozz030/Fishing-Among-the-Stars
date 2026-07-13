@@ -47,13 +47,14 @@ const CONFIG = {
 
 // ====== 钓鱼小游戏参数 (时机型收杆: 鱼图标不规则游动, 绿色钩取区间规律移动, 点击瞬间鱼在区间内才算命中) ======
 const MINIGAME_CONFIG = {
-  barW: 48, barH: 200, pointerH: 10,   // 主条尺寸 + 鱼图标高度(px)
+  barW: 48, barH: 220, pointerH: 10,   // 主条尺寸(略微加高以获得更精细的操作空间) + 鱼图标高度(px)
   timerBarW: 10,                        // 右侧倒计时条宽度(px)
 
   // --- 绿色钩取区间 (规律的乒乓往返运动) ---
-  rareZoneH: 80,                // 稀有鱼钩取区间基础高度(px)
-  legendaryZoneH: 50,           // 传说鱼钩取区间基础高度(px)
-  zoneBonusPxPerLevel: 4,       // 每级鱼竿额外增加区间高度(px), 鱼竿越好玩家的窗口越大
+  rareZoneH: 60,                // 稀有鱼钩取区间基础高度(px, 约占barH的27%)
+  legendaryZoneH: 34,           // 传说鱼钩取区间基础高度(px, 约占barH的15%)
+  zoneBonusPxPerLevel: 4,       // 每级鱼竿额外增加区间高度(px), 鱼竿越好玩家的窗口越大 (满级rare 84px≈38%, legendary 58px≈26%)
+  zoneMaxRatio: 0.45,           // 硬上限: 区间高度不论加成如何叠加, 最终不超过barH的45%, 为后续技能/词条留出成长空间
   rareZoneSpeed: 0.8,           // 稀有鱼钩取区间移动速度(px/帧)
   legendaryZoneSpeed: 1.2,      // 传说鱼钩取区间移动速度(px/帧)
   zoneSpeedReductionPerLevel: 0.05, // 每级鱼竿让区间移动再减速5% (更容易跟上)
@@ -221,7 +222,7 @@ const state = {
     hammer: false,        // 锤子：解锁敲椰子
     purifier: false,      // 净水过滤器：解锁被动产水
   },
-  rodLevel: 0, // 鱼竿升级等级 0~6, 每级+5%命中率 (50% -> 80%)
+  rodLevel: 0, // 鱼竿升级等级 0~6: 每级 普通鱼命中率+5% (50%->80%, 上限设计意图为让后期普通鱼接近"白拿", 作为货币/宠物粮资源) 且 稀有/传说钓鱼小游戏钩取区间+4px (不影响稀有/传说触发概率, 那由饵料/技能/词条决定)
   purifierAccum: 0, // 净水器累积计时器
   autocollectorAccum: 0, // 自动收集网打捞计时器
   lastTick: Date.now(),
@@ -631,7 +632,7 @@ const BOTTLE_DEFS = [
     id: "fisherman_letter",
     title: "来自远方的渔夫信",
     quote: "好的工具才能钓到好的鱼……",
-    instruction: "在工坊中消耗铁块×3升级鱼竿,解锁更高的钓鱼命中率和稀有鱼概率!",
+    instruction: "在工坊中消耗铁块×3升级鱼竿,提升普通鱼命中率,还能扩大稀有/传说钓鱼小游戏的钩取区间!",
     rewardText: "铁块×2",
     condition: () => state.stats.totalCasts >= 20 && state.rodLevel === 0,
     reward: () => addRes({ iron: 2 }),
@@ -1128,7 +1129,7 @@ function resolveFishCatch() {
 // 玩家点击瞬间若鱼图标落在钩取区间内则命中一次, 累计到所需命中次数即成功; 落空消耗一次尝试并让鱼受惊加速
 function startMinigame(tier) {
   const isLeg = tier === "legendary";
-  const zoneH = Math.min(MINIGAME_CONFIG.barH * 0.9,
+  const zoneH = Math.min(MINIGAME_CONFIG.barH * MINIGAME_CONFIG.zoneMaxRatio,
     (isLeg ? MINIGAME_CONFIG.legendaryZoneH : MINIGAME_CONFIG.rareZoneH) + state.rodLevel * MINIGAME_CONFIG.zoneBonusPxPerLevel);
   const zoneBaseSpeed = isLeg ? MINIGAME_CONFIG.legendaryZoneSpeed : MINIGAME_CONFIG.rareZoneSpeed;
   const zoneSpeed = zoneBaseSpeed * (1 - state.rodLevel * MINIGAME_CONFIG.zoneSpeedReductionPerLevel);
@@ -1550,7 +1551,7 @@ function doUpgradeRod() {
   payCost(cost);
   state.rodLevel += 1;
   spendEnergy(4);
-  toast(`鱼竿升级! 命中率提升到 ${displayChancePct(rodChance())}%`);
+  toast(`鱼竿升级! 普通鱼命中 ${displayChancePct(rodChance())}% · 钩取区间 +4px`);
   updateUI();
   save();
 }
@@ -2363,25 +2364,31 @@ function updateUI() {
   fillEl.classList.toggle("mid", energyPct >= 30 && energyPct < 80);
   document.getElementById("energy-value").textContent = `${Math.round(state.energy)}/100${state.energy <= 0 ? " (疲惫)" : ""}`;
 
+  // 图标导航栏是纯图标按钮, 不再显示完整文案 —— 状态说明改放进 title (长按/悬停提示), 不可用时仅置灰
   const zoneBtn = document.getElementById("btn-zone-switch");
   const now = Date.now();
   if (state.zone === "stream") {
     if (now < state.zoneCooldownUntil) {
-      zoneBtn.textContent = `⛵ 冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
+      zoneBtn.textContent = "⛵";
+      zoneBtn.title = `冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
       zoneBtn.disabled = true;
     } else if (state.era !== "iron") {
-      zoneBtn.textContent = "🔒 前往河流 (需铁器时代)";
+      zoneBtn.textContent = "🔒";
+      zoneBtn.title = "前往河流 (需铁器时代)";
       zoneBtn.disabled = true;
     } else {
-      zoneBtn.textContent = "⛵ 前往河流";
+      zoneBtn.textContent = "⛵";
+      zoneBtn.title = "前往河流";
       zoneBtn.disabled = false;
     }
   } else {
     if (now < state.zoneCooldownUntil) {
-      zoneBtn.textContent = `🏞️ 冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
+      zoneBtn.textContent = "🏞️";
+      zoneBtn.title = `冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
       zoneBtn.disabled = true;
     } else {
-      zoneBtn.textContent = "🏞️ 返回溪流";
+      zoneBtn.textContent = "🏞️";
+      zoneBtn.title = "返回溪流";
       zoneBtn.disabled = false;
     }
   }
@@ -2557,15 +2564,15 @@ function renderBuildModal() {
     card.className = "wcard";
     const fb = feedbackOverlayHtml("rod_upgrade");
     if (state.rodLevel >= 6) {
-      card.innerHTML = `<div class="wcard-icon">🎣</div><div class="wcard-name">鱼竿已满级</div><div class="wcard-sub">命中率 ${displayChancePct(rodChance())}%</div><button class="wcard-btn done">✓</button>`;
+      card.innerHTML = `<div class="wcard-icon">🎣</div><div class="wcard-name">鱼竿已满级</div><div class="wcard-sub">普通鱼命中 ${displayChancePct(rodChance())}% · 钩取区间已最大</div><button class="wcard-btn done">✓</button>`;
     } else {
       const cost = rodUpgradeCost();
       card.innerHTML = fb || `
         <div class="wcard-icon">🎣</div>
         <div class="wcard-name">升级鱼竿 Lv.${state.rodLevel}</div>
-        <div class="wcard-desc">提升钓鱼命中率</div>
+        <div class="wcard-desc">普通鱼命中率提升 + 稀有/传说钓鱼小游戏钩取区间扩大</div>
         <div class="wcard-cost">${costLineHtml(cost)}</div>
-        <div class="wcard-sub">命中率 ${displayChancePct(rodChance())}% → +5%</div>
+        <div class="wcard-sub">命中率 ${displayChancePct(rodChance())}% → +5% · 钩取区间 +4px</div>
         <button class="wcard-btn" ${canAfford(cost) ? "" : "disabled"}>建造</button>
       `;
       if (!fb) card.querySelector("button").onclick = doUpgradeRod;
@@ -4009,14 +4016,17 @@ document.getElementById("btn-guide").onclick = () => {
 document.getElementById("guide-close").onclick = () => {
   document.getElementById("guide-modal").classList.add("hidden");
 };
-document.getElementById("btn-bag").onclick = () => {
+function openBagModal() {
   bagExpandedKey = null;
   renderBagModal();
   document.getElementById("bag-modal").classList.remove("hidden");
-};
+}
+document.getElementById("btn-bag").onclick = openBagModal;
 document.getElementById("bag-close").onclick = () => {
   document.getElementById("bag-modal").classList.add("hidden");
 };
+// 资源速览条: 点击整条(任意资源图标)打开背包查看完整库存
+document.getElementById("resource-strip").onclick = openBagModal;
 
 document.getElementById("bottle-close").onclick = () => {
   document.getElementById("bottle-modal").classList.add("hidden");

@@ -135,9 +135,26 @@ html, body {
   gap: 10px;
 }
 
-#zone-row { display: flex; gap: 6px; flex-wrap: wrap; }
-#zone-row .big-btn { min-height: 44px; font-size: 11.5px; flex: 1 1 45%; }
-#zone-row .big-btn:disabled { opacity: 0.5; }
+/* ====== 图标导航栏 (低频功能入口, 固定放在面板最下方) ====== */
+#zone-row { display: flex; gap: 6px; justify-content: space-between; }
+.icon-nav-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 40px;
+  max-width: 44px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  border: 2px solid #2a4a64;
+  border-radius: 8px;
+  background: #16324a;
+  color: #cfe8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.icon-nav-btn:active { background: #11253a; }
+.icon-nav-btn:disabled { opacity: 0.4; }
 
 #legendary-flash {
   position: fixed; inset: 0;
@@ -153,19 +170,43 @@ html, body {
   100% { opacity: 0; }
 }
 
-#resources {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+/* ====== 资源速览条: 6个常用资源的紧凑图标+数字, 横向可滚动, 点击整条打开背包 ====== */
+#resource-strip-wrap { position: relative; }
+#resource-strip {
+  display: flex;
   gap: 6px;
-  background: #11253a;
-  border: 3px solid #2a4a64;
-  border-radius: 0;
-  padding: 10px;
-  font-size: 12.5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 2px 0;
+  cursor: pointer;
 }
-.res span { font-weight: bold; color: #ffd86b; }
+#resource-strip::-webkit-scrollbar { display: none; }
+.res-chip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #11253a;
+  border: 2px solid #2a4a64;
+  border-radius: 14px;
+  padding: 6px 12px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.res-chip span { font-weight: bold; color: #ffd86b; }
+/* 右侧渐隐提示: 暗示可横向滚动查看更多 */
+#resource-strip-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 24px;
+  background: linear-gradient(90deg, transparent, #0c1b2a);
+  pointer-events: none;
+}
 
-/* ====== 核心操作区: 4行布局 ====== */
+/* ====== 核心操作区: 主操作(钓鱼+打捞+翻垃圾) + 次级操作(建造+打造) ====== */
+#primary-actions { display: flex; flex-direction: column; gap: 6px; }
 .action-row { display: flex; gap: 8px; position: relative; }
 .action-row.two-col > * { flex: 1 1 50%; min-width: 0; }
 .action-row.two-col .big-btn { min-height: 44px; font-size: 13px; }
