@@ -557,10 +557,12 @@ html, body {
   gap: 3px;
 }
 .fish-card.unknown { opacity: 0.5; }
-.fish-icon { font-size: 26px; line-height: 1; height: 32px; display: flex; align-items: center; justify-content: center; }
+.fish-icon { position: relative; font-size: 26px; line-height: 1; height: 32px; display: flex; align-items: center; justify-content: center; }
 .fish-icon canvas { image-rendering: pixelated; width: 32px; height: 32px; }
+.fish-record-badge { position: absolute; top: -6px; right: -10px; font-size: 13px; }
 .fish-name { font-size: 11.5px; font-weight: bold; }
 .fish-count { font-size: 10px; opacity: 0.8; }
+.fish-record { font-size: 9.5px; color: #ffd86b; opacity: 0.9; }
 .rarity-tag {
   font-size: 9px;
   padding: 1px 6px;
@@ -743,6 +745,33 @@ html, body {
 }
 .bottle-instruction { font-size: 12.5px; line-height: 1.6; text-align: left; margin-bottom: 10px; }
 .bottle-reward { font-size: 12.5px; color: #ffd86b; font-weight: bold; margin-bottom: 12px; }
+
+/* ====== 分享战绩按钮 (稀有/传说鱼捕获成功后短暂浮现) ====== */
+.share-catch-btn {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 550;
+  max-width: calc(100vw - 32px);
+  min-height: 44px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #ffd86b, #ffb347);
+  color: #2a1a00;
+  border: 2px solid #c47e1f;
+  border-radius: 22px;
+  font-weight: bold;
+  font-size: 13px;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: shareBtnPulse 1.4s ease-in-out infinite;
+}
+@keyframes shareBtnPulse {
+  0%, 100% { transform: translateX(-50%) scale(1); }
+  50% { transform: translateX(-50%) scale(1.04); }
+}
 
 /* ====== 重置存档按钮 (固定右上角, 始终可见) ====== */
 #btn-reset-save {

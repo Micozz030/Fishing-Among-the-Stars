@@ -37,17 +37,30 @@ const CONFIG = {
   },
   ENERGY_REGEN_INTERVAL: 30,        // 精力耗尽后, 每隔多少秒被动恢复一次
   ENERGY_REGEN_AMOUNT: 5,           // 每次被动恢复的精力值
+  AUTO_COLLECTOR_FISH_WEIGHT: 1.5,  // 自动收集网掉落表中"普通鱼"相对其他条目的权重倍数
+  FISH_LENGTH_RANGES: {
+    common: [8, 35],
+    rare: [30, 80],
+    legendary: [60, 150],
+  },
 };
 
-// ====== 钓鱼精准小游戏条参数 ======
-const BAR_CONFIG = {
-  x: 316, y: 90, w: 22, h: 200,
-  markerH: 8,
-  rareTargetBase: 80,         // 稀有鱼目标区间基础高度(px)
-  legendaryTargetBase: 50,    // 传说鱼目标区间基础高度(px)
-  bonusPxPerLevel: 4,         // 每级鱼竿额外增加目标区间高度(px)
-  baseSpeedPerSec: 0.55,      // 指针每秒移动距离(占条高度比)
-  speedReductionPerLevel: 0.05, // 每级鱼竿减速百分比
+// ====== 钓鱼小游戏参数 (仿星露谷: 点击/点按让指针上浮, 松手自然下沉, 需让指针停留在移动的目标区间内) ======
+const MINIGAME_CONFIG = {
+  barW: 48, barH: 200, pointerH: 10,   // 主条尺寸 + 指针高度(px)
+  timerBarW: 10,                        // 右侧倒计时条宽度(px)
+  rareTargetBase: 80,          // 稀有鱼目标区间基础高度(px)
+  legendaryTargetBase: 50,     // 传说鱼目标区间基础高度(px)
+  bonusPxPerLevel: 4,          // 每级鱼竿额外增加目标区间高度(px)
+  rareZoneSpeed: 0.9,          // 稀有鱼目标区间移动速度(px/帧, 慢)
+  legendaryZoneSpeed: 1.6,     // 传说鱼目标区间移动速度(px/帧, 快)
+  speedReductionPerLevel: 0.05, // 每级鱼竿让目标区间移动再减速5%
+  riseStep: 20,                 // 每次点击/点按指针上浮量(px)
+  fallStep: 3,                  // 指针每帧自然下沉量(px)
+  rareDurationMs: 3000,
+  legendaryDurationMs: 5000,
+  successRatio: 0.6,            // 指针需在目标区间内停留的最低帧数占比
+  flashDurationMs: 500,         // 成功/失败结算后的闪光展示时长
 };
 
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
@@ -90,12 +103,8 @@ let fishRippleAccum = 0;
 
 // ====== 稀有/传说鱼精准小游戏状态 ======
 let fishingBiteTier = null;         // "common"|"rare"|"legendary" 咬钩阶段预判
-let fishingBarMarker = 0.5;         // 0-1 移动指针位置
-let fishingBarDir = 1;              // 弹跳方向
-let fishingBarTargetY = 0.3;        // 0-1 目标区间顶端
-let fishingBarTargetH = 0.4;        // 0-1 目标区间高度
-let fishingBarHit = null;           // 玩家点击时是否命中目标区间
-let fishingBarLastUpdate = 0;       // 帧增量计时
+let minigame = null;                // 小游戏运行时状态对象, 见 startMinigame()
+let minigameOverlayEl = null;       // 全屏输入捕获层 (小游戏进行时点击任意处让指针上浮)
 
 // ====== 角色换装系统 (奇幻镜) ======
 const COSTUME_SAVE_KEY = "costume_state";
@@ -359,6 +368,25 @@ const LOOT_TABLE_IRON = [
   { wood: 2 }, { wood: 3 }, { rope: 2 }, { scrap: 2 }, { iron: 1 },
   { seaweed: 2 }, { plastic: 2 }, { trash: 1 }, { trash: 2 },
 ];
+
+// 按权重随机抽取一项 (entries: [{weight, res}])
+function pickWeighted(entries) {
+  const total = entries.reduce((s, e) => s + e.weight, 0);
+  let r = Math.random() * total;
+  for (const e of entries) {
+    if (r < e.weight) return e.res;
+    r -= e.weight;
+  }
+  return entries[entries.length - 1].res;
+}
+
+// 自动收集网专用掉落表: 在基础打捞表之上额外加入"普通鱼", 权重为其他条目的1.5倍
+function autoCollectorLootTable() {
+  const base = state.era === "iron" ? LOOT_TABLE_IRON : LOOT_TABLE_STONE;
+  const entries = base.map(res => ({ weight: 1, res }));
+  entries.push({ weight: CONFIG.AUTO_COLLECTOR_FISH_WEIGHT, res: { fish: 1 } });
+  return entries;
+}
 
 // 翻垃圾专用掉落表: 废铁/铁块权重明显高于普通打捞
 const RUMMAGE_TABLE_STONE = [
@@ -735,18 +763,18 @@ const FISH_PIXEL_GRIDS = {
 };
 
 const FISH = {
-  trout: { name: "小溪鳟鱼", icon: "🐟", rarity: "common", zones: ["stream"] },
-  stripey: { name: "石斑小鱼", icon: "🐠", rarity: "common", zones: ["stream"] },
-  shrimp: { name: "透明虾虎", icon: "🦐", rarity: "common", zones: ["stream"] },
-  loach: { name: "溪流泥鳅", icon: "🐡", rarity: "common", zones: ["stream"] },
-  carp: { name: "河鲤", icon: "🐟", rarity: "common", zones: ["river"] },
-  grassfish: { name: "草鱼", icon: "🐟", rarity: "common", zones: ["river"] },
-  catfish: { name: "鲶鱼", icon: "🐟", rarity: "common", zones: ["river"] },
-  puffer: { name: "河豚", icon: "🐡", rarity: "common", zones: ["river"] },
-  koi: { name: "锦鲤", icon: "✨", rarity: "rare", zones: ["river"], pixel: true },
-  blackfish: { name: "巨口黑鱼", icon: "💀", rarity: "rare", zones: ["river"], pixel: true },
-  turtle: { name: "漂流老龟", icon: "🐢", rarity: "legendary", zones: ["stream", "river"], pixel: true },
-  jellyfish: { name: "幽灵水母", icon: "👻", rarity: "legendary", zones: ["stream", "river"], pixel: true },
+  trout: { name: "小溪鳟鱼", icon: "🐟", rarity: "common", zones: ["stream"], lengthMult: 1.0 },
+  stripey: { name: "石斑小鱼", icon: "🐠", rarity: "common", zones: ["stream"], lengthMult: 0.9 },
+  shrimp: { name: "透明虾虎", icon: "🦐", rarity: "common", zones: ["stream"], lengthMult: 0.5 },
+  loach: { name: "溪流泥鳅", icon: "🐡", rarity: "common", zones: ["stream"], lengthMult: 0.8 },
+  carp: { name: "河鲤", icon: "🐟", rarity: "common", zones: ["river"], lengthMult: 1.1 },
+  grassfish: { name: "草鱼", icon: "🐟", rarity: "common", zones: ["river"], lengthMult: 1.2 },
+  catfish: { name: "鲶鱼", icon: "🐟", rarity: "common", zones: ["river"], lengthMult: 1.3 },
+  puffer: { name: "河豚", icon: "🐡", rarity: "common", zones: ["river"], lengthMult: 0.7 },
+  koi: { name: "锦鲤", icon: "✨", rarity: "rare", zones: ["river"], pixel: true, lengthMult: 1.0 },
+  blackfish: { name: "巨口黑鱼", icon: "💀", rarity: "rare", zones: ["river"], pixel: true, lengthMult: 1.4 },
+  turtle: { name: "漂流老龟", icon: "🐢", rarity: "legendary", zones: ["stream", "river"], pixel: true, lengthMult: 1.8 },
+  jellyfish: { name: "幽灵水母", icon: "👻", rarity: "legendary", zones: ["stream", "river"], pixel: true, lengthMult: 0.6 },
 };
 const RARITY_LABEL = { common: "普通", rare: "稀有", legendary: "传说" };
 
@@ -761,23 +789,44 @@ function flashLegendary() {
   el.classList.add("flash");
 }
 
-function registerCatch(fishKey, isExtra) {
+// 根据鱼种稀有度+专属体长倍率, 随机生成本次捕获的长度(cm), 保留1位小数
+function rollFishLength(fishKey) {
   const def = FISH[fishKey];
-  const entry = state.bestiary[fishKey] || (state.bestiary[fishKey] = { caught: false, count: 0, firstZone: null });
+  const range = CONFIG.FISH_LENGTH_RANGES[def.rarity] || CONFIG.FISH_LENGTH_RANGES.common;
+  const mult = def.lengthMult || 1.0;
+  const raw = (range[0] + Math.random() * (range[1] - range[0])) * mult;
+  return Math.round(raw * 10) / 10;
+}
+
+// length: 本次捕获的体长(cm), 用于更新该鱼种的个人最长纪录 (state.bestiary[key].record)
+// 返回值: 本次捕获是否刷新了纪录
+function registerCatch(fishKey, isExtra, length) {
+  const def = FISH[fishKey];
+  const entry = state.bestiary[fishKey] || (state.bestiary[fishKey] = { caught: false, count: 0, firstZone: null, record: null });
   entry.caught = true;
   entry.count += 1;
   if (!entry.firstZone) entry.firstZone = state.zone;
 
+  let isNewRecord = false;
+  if (typeof length === "number") {
+    if (!entry.record || length > entry.record.length) {
+      entry.record = { length, caughtAt: Date.now() };
+      isNewRecord = true;
+    }
+  }
+
+  const lenTag = typeof length === "number" ? ` (${length.toFixed(1)}cm${isNewRecord ? " 🏆新纪录!" : ""})` : "";
   if (def.rarity === "legendary") {
     state.skillPoints.fish += 3;
     flashLegendary();
-    toast(`✨✨ 传说级!钓到了 ${def.icon}${def.name}! 钓鱼点+3 ✨✨`);
+    toast(`✨✨ 传说级!钓到了 ${def.icon}${def.name}${lenTag}! 钓鱼点+3 ✨✨`);
   } else if (def.rarity === "rare") {
     state.skillPoints.fish += 1;
-    toast(`💖 稀有!钓到了 ${def.icon}${def.name}! 钓鱼点+1`);
+    toast(`💖 稀有!钓到了 ${def.icon}${def.name}${lenTag}! 钓鱼点+1`);
   } else if (!isExtra) {
-    toast(`钓上了 ${def.icon}${def.name}`);
+    toast(`钓上了 ${def.icon}${def.name}${lenTag}`);
   }
+  return isNewRecord;
 }
 
 // 根据当前流域+词条+技能决定本次钓上的鱼种
@@ -951,7 +1000,7 @@ function doFishing(useFoodBait) {
   let baitKey = "seaweed";
   if (useFoodBait === "bread" || useFoodBait === "spam") baitKey = useFoodBait;
   if (state.res[baitKey] < 1) { toast(`没有${ICONS[baitKey]}可以做鱼饵了`); return; }
-  state.res[baitKey] -= 1;
+  // 注: 鱼饵此处不扣除库存 —— 只有触发稀有/传说小游戏且失败时才会消耗 (见 finalizeMinigameCatch)
 
   fishingBaitKey = baitKey;
   fishingBaitBonus = 0; // 饵料不再影响命中率, 改为影响稀有/传说触发概率
@@ -973,37 +1022,25 @@ function enterFishWaitPhase() {
   fishingTimer = setTimeout(enterFishBitePhase, dur);
 }
 
+// 普通鱼: 沿用原有"抛线->等待->咬钩(0.8s窗口, 点击拉线)->收线"流程, 无小游戏
+// 稀有/传说鱼: 跳过咬钩窗口, 直接进入精准小游戏 (见 startMinigame)
 function enterFishBitePhase() {
   fishingBiteTier = rollFishTierWithBait(fishingBaitKey);
-  let dur = 800;
   if (fishingBiteTier !== "common") {
-    // 稀有/传说鱼: 启动精准小游戏条, 给更长的互动窗口
-    const basePx = fishingBiteTier === "legendary" ? BAR_CONFIG.legendaryTargetBase : BAR_CONFIG.rareTargetBase;
-    const targetPx = Math.min(BAR_CONFIG.h * 0.85, basePx + state.rodLevel * BAR_CONFIG.bonusPxPerLevel);
-    fishingBarTargetH = targetPx / BAR_CONFIG.h;
-    fishingBarTargetY = 0.05 + Math.random() * (0.9 - fishingBarTargetH);
-    fishingBarMarker = Math.random();
-    fishingBarDir = Math.random() < 0.5 ? 1 : -1;
-    fishingBarHit = null;
-    fishingBarLastUpdate = Date.now();
-    dur = 3000;
-  } else {
-    fishingBarHit = null;
+    startMinigame(fishingBiteTier);
+    return;
   }
   fishingState = "biting";
-  fishingPhaseDur = dur;
-  fishingPhaseUntil = Date.now() + dur;
+  fishingPhaseDur = 800;
+  fishingPhaseUntil = Date.now() + fishingPhaseDur;
   updateUI();
-  fishingTimer = setTimeout(missFishBite, dur);
+  fishingTimer = setTimeout(missFishBite, 800);
 }
 
 function missFishBite() {
   fishingState = "idle";
-  if (fishingBiteTier === "legendary") toast("时机没把握住,传说鱼溜走了!");
-  else if (fishingBiteTier === "rare") toast("时机没把握住,稀有鱼溜走了!");
-  else toast(pick(FISH_ESCAPE_JOKES));
+  toast(pick(FISH_ESCAPE_JOKES));
   fishingBiteTier = null;
-  fishingBarHit = null;
   updateUI();
   save();
 }
@@ -1011,11 +1048,6 @@ function missFishBite() {
 function pullFishingLine() {
   if (fishingState !== "biting") return;
   clearTimeout(fishingTimer);
-  // 精准小游戏: 记录点击时指针是否在目标区间内
-  if (fishingBiteTier && fishingBiteTier !== "common") {
-    fishingBarHit = fishingBarMarker >= fishingBarTargetY &&
-                    fishingBarMarker <= fishingBarTargetY + fishingBarTargetH;
-  }
   fishingState = "pulling";
   fishingPhaseDur = 350;
   fishingPhaseUntil = Date.now() + fishingPhaseDur;
@@ -1023,33 +1055,21 @@ function pullFishingLine() {
   fishingTimer = setTimeout(resolveFishCatch, fishingPhaseDur);
 }
 
+// 仅处理普通鱼的收线判定 (命中率生成 + 松弛的容错), 稀有/传说鱼由 finalizeMinigameCatch 处理
 function resolveFishCatch() {
   const now = Date.now();
   const tempHit = now < state.tempHitModExpire ? state.tempHitMod : 0;
   const eff = efficiency();
-  const tier = fishingBiteTier || "common";
-
-  // 稀有/传说鱼: 由精准小游戏条命中结果决定; 普通鱼: 沿用命中率判断
-  let hit;
-  if (tier === "rare" || tier === "legendary") {
-    hit = fishingBarHit === true;
-  } else {
-    const chance = Math.min(1, (rodChance() + tempHit) * eff);
-    hit = Math.random() < chance;
-  }
-
-  // 精准直觉: 每3次成功钓到普通鱼时将本次鱼种强制升为稀有
-  let forceTier = tier;
+  const chance = Math.min(1, (rodChance() + tempHit) * eff);
+  const hit = Math.random() < chance;
   const precisionActive = state.currentBuff === "precision" && state.zone === "river";
 
   if (hit) {
-    if (tier === "common") {
-      state.castStreak += 1;
-      if (precisionActive && state.castStreak % 3 === 0) forceTier = "rare";
-    }
+    state.castStreak += 1;
 
-    const speciesKey = rollFishSpecies(forceTier);
-    registerCatch(speciesKey);
+    const speciesKey = rollFishSpecies("common");
+    const length = rollFishLength(speciesKey);
+    registerCatch(speciesKey, false, length);
     const gain = 1 + (Math.random() < 0.25 ? 1 : 0);
     state.res.fish += gain;
     spawnFloatingText(`🐟+${gain}`);
@@ -1058,24 +1078,360 @@ function resolveFishCatch() {
     // 磁力鱼钩: 额外多钓1条普通鱼
     if (state.currentBuff === "magnet") {
       const extraKey = rollFishSpecies("common");
-      registerCatch(extraKey, true);
+      const extraLen = rollFishLength(extraKey);
+      registerCatch(extraKey, true, extraLen);
       state.res.fish += 1;
       toast(`磁力鱼钩还多带上来一条 ${FISH[extraKey].icon}${FISH[extraKey].name}!`);
     }
+
+    // 精准直觉: 每3次成功钓到普通鱼, 额外白送一条稀有鱼 (不占用小游戏)
+    if (precisionActive && state.castStreak % 3 === 0) {
+      const bonusKey = rollFishSpecies("rare");
+      const bonusLen = rollFishLength(bonusKey);
+      registerCatch(bonusKey, true, bonusLen);
+      state.res.fish += 1;
+      toast(`精准直觉发动!额外获得 ${FISH[bonusKey].icon}${FISH[bonusKey].name} (${bonusLen.toFixed(1)}cm)!`);
+    }
   } else {
-    if (tier === "common") state.castStreak = 0;
-    if (tier === "legendary") toast("时机没对上,传说鱼溜走了!");
-    else if (tier === "rare") toast("时机没对上,稀有鱼溜走了!");
-    else toast("鱼饵被叼跑了,这次没钓到...");
+    state.castStreak = 0;
+    toast("鱼饵被叼跑了,这次没钓到...");
     checkFishAchievements(null, false);
   }
   spendEnergy(3);
   fishingState = "idle";
   fishingBaitKey = null;
   fishingBiteTier = null;
-  fishingBarHit = null;
   updateUI();
   save();
+}
+
+// ====== 稀有/传说鱼: 精准小游戏 (仿星露谷钓鱼条) ======
+// 指针点击/点按上浮, 松手自然下沉; 目标区间自动来回移动; 倒计时内指针停留在区间内的帧数占比达标即成功
+function startMinigame(tier) {
+  const isLeg = tier === "legendary";
+  const baseTarget = isLeg ? MINIGAME_CONFIG.legendaryTargetBase : MINIGAME_CONFIG.rareTargetBase;
+  const zoneH = Math.min(MINIGAME_CONFIG.barH * 0.9, baseTarget + state.rodLevel * MINIGAME_CONFIG.bonusPxPerLevel);
+  const baseSpeed = isLeg ? MINIGAME_CONFIG.legendaryZoneSpeed : MINIGAME_CONFIG.rareZoneSpeed;
+  const zoneSpeed = baseSpeed * (1 - state.rodLevel * MINIGAME_CONFIG.speedReductionPerLevel);
+  const durationMs = isLeg ? MINIGAME_CONFIG.legendaryDurationMs : MINIGAME_CONFIG.rareDurationMs;
+
+  minigame = {
+    tier,
+    pointerY: (MINIGAME_CONFIG.barH - MINIGAME_CONFIG.pointerH) / 2,
+    zoneY: Math.random() * (MINIGAME_CONFIG.barH - zoneH),
+    zoneH,
+    zoneDir: Math.random() < 0.5 ? 1 : -1,
+    zoneSpeed,
+    startAt: Date.now(),
+    durationMs,
+    framesTotal: 0,
+    framesInZone: 0,
+    resolved: null,      // null | "success" | "fail"
+    resolvedAt: 0,
+  };
+  fishingState = "minigame";
+  fishingPhaseDur = durationMs;
+  fishingPhaseUntil = minigame.startAt + durationMs;
+  clearTimeout(fishingTimer);
+  ensureMinigameOverlay();
+  updateUI();
+}
+
+function updateMinigame() {
+  if (!minigame) return;
+  const now = Date.now();
+  if (minigame.resolved === null) {
+    minigame.pointerY = Math.max(0, minigame.pointerY - MINIGAME_CONFIG.fallStep);
+
+    const maxZoneY = MINIGAME_CONFIG.barH - minigame.zoneH;
+    minigame.zoneY += minigame.zoneDir * minigame.zoneSpeed;
+    if (minigame.zoneY <= 0) { minigame.zoneY = 0; minigame.zoneDir = 1; }
+    if (minigame.zoneY >= maxZoneY) { minigame.zoneY = maxZoneY; minigame.zoneDir = -1; }
+
+    minigame.framesTotal += 1;
+    const pointerCenter = minigame.pointerY + MINIGAME_CONFIG.pointerH / 2;
+    if (pointerCenter >= minigame.zoneY && pointerCenter <= minigame.zoneY + minigame.zoneH) {
+      minigame.framesInZone += 1;
+    }
+
+    if (now - minigame.startAt >= minigame.durationMs) {
+      const ratio = minigame.framesTotal > 0 ? minigame.framesInZone / minigame.framesTotal : 0;
+      minigame.resolved = ratio >= MINIGAME_CONFIG.successRatio ? "success" : "fail";
+      minigame.resolvedAt = now;
+    }
+  } else if (now - minigame.resolvedAt >= MINIGAME_CONFIG.flashDurationMs) {
+    finalizeMinigameCatch(minigame.resolved === "success");
+  }
+}
+
+function onMinigameTap() {
+  if (fishingState !== "minigame" || !minigame || minigame.resolved !== null) return;
+  minigame.pointerY = Math.min(MINIGAME_CONFIG.barH - MINIGAME_CONFIG.pointerH, minigame.pointerY + MINIGAME_CONFIG.riseStep);
+}
+
+function ensureMinigameOverlay() {
+  if (minigameOverlayEl) return minigameOverlayEl;
+  const el = document.createElement("div");
+  el.id = "minigame-input-overlay";
+  el.style.cssText = "position:fixed;inset:0;z-index:600;background:transparent;touch-action:none;cursor:pointer;";
+  el.addEventListener("click", onMinigameTap);
+  el.addEventListener("touchstart", (e) => { e.preventDefault(); onMinigameTap(); }, { passive: false });
+  document.body.appendChild(el);
+  minigameOverlayEl = el;
+  return el;
+}
+function removeMinigameOverlay() {
+  if (minigameOverlayEl) { minigameOverlayEl.remove(); minigameOverlayEl = null; }
+}
+
+// 在游戏画布(360x420)中央绘制小游戏浮层: 目标区间(绿色/自动移动) + 指针(点击上浮/自动下沉) + 右侧倒计时条
+function drawMinigame() {
+  if (!minigame) return;
+  const barW = MINIGAME_CONFIG.barW, barH = MINIGAME_CONFIG.barH;
+  const x = 180 - barW / 2 - 8;
+  const y = (420 - barH) / 2 - 6;
+  const isLeg = minigame.tier === "legendary";
+  const accent = isLeg ? "#ffd86b" : "#5bd17a";
+
+  // 半透明遮罩: 视觉上突出小游戏, 并配合全屏输入捕获层阻断其余按钮
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(0, 0, 360, 420);
+
+  ctx.fillStyle = "rgba(8,18,30,0.92)";
+  ctx.fillRect(x - 14, y - 26, barW + MINIGAME_CONFIG.timerBarW + 28, barH + 44);
+
+  // 顶部标签: 结果未确认前显示❓, 结算后才揭晓
+  let label = "❓";
+  if (minigame.resolved === "success") label = isLeg ? "✨传说!" : "💖稀有!";
+  else if (minigame.resolved === "fail") label = "💔逃脱了";
+  ctx.fillStyle = accent;
+  ctx.font = "bold 13px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(label, x + barW / 2, y - 9);
+
+  // 主条背景
+  ctx.fillStyle = "#0a1622";
+  ctx.fillRect(x, y, barW, barH);
+
+  // 目标区间 (zoneY 以条底为0点, 需换算为canvas从上往下的像素坐标)
+  const zoneTopPx = y + (barH - minigame.zoneY - minigame.zoneH);
+  ctx.fillStyle = accent;
+  ctx.globalAlpha = 0.45;
+  ctx.fillRect(x, zoneTopPx, barW, minigame.zoneH);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.5;
+  ctx.strokeRect(x, zoneTopPx, barW, minigame.zoneH);
+
+  // 指针
+  const pointerTopPx = y + (barH - minigame.pointerY - MINIGAME_CONFIG.pointerH);
+  const pointerCenter = minigame.pointerY + MINIGAME_CONFIG.pointerH / 2;
+  const inZone = pointerCenter >= minigame.zoneY && pointerCenter <= minigame.zoneY + minigame.zoneH;
+  ctx.fillStyle = inZone ? "#ffffff" : "#ff8f6b";
+  ctx.fillRect(x - 3, pointerTopPx, barW + 6, MINIGAME_CONFIG.pointerH);
+
+  // 外框: 成功闪金光, 失败抖动闪红光
+  let frameColor = accent, shakeX = 0;
+  if (minigame.resolved === "success") frameColor = "#ffe17a";
+  else if (minigame.resolved === "fail") { frameColor = "#ff5c4c"; shakeX = Math.sin(Date.now() / 30) * 3; }
+  ctx.strokeStyle = frameColor;
+  ctx.lineWidth = 2.5;
+  ctx.strokeRect(x + shakeX, y, barW, barH);
+
+  // 右侧倒计时条
+  const tbX = x + barW + 10;
+  ctx.fillStyle = "#0a1622";
+  ctx.fillRect(tbX, y, MINIGAME_CONFIG.timerBarW, barH);
+  const elapsed = Math.min(minigame.durationMs, Date.now() - minigame.startAt);
+  const remainRatio = minigame.resolved === null
+    ? Math.max(0, 1 - elapsed / minigame.durationMs)
+    : (minigame.resolved === "success" ? 1 : 0);
+  const tbFillH = barH * remainRatio;
+  ctx.fillStyle = remainRatio > 0.3 ? "#5bd17a" : "#ff8f6b";
+  ctx.fillRect(tbX, y + (barH - tbFillH), MINIGAME_CONFIG.timerBarW, tbFillH);
+  ctx.strokeStyle = "#2a4a64";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(tbX, y, MINIGAME_CONFIG.timerBarW, barH);
+
+  // 底部操作提示
+  if (minigame.resolved === null) {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "10px sans-serif";
+    ctx.globalAlpha = 0.85;
+    ctx.fillText("点击屏幕保持指针在区间内!", x + barW / 2, y + barH + 16);
+    ctx.globalAlpha = 1;
+  }
+  ctx.textAlign = "left";
+}
+
+function finalizeMinigameCatch(success) {
+  const tier = minigame ? minigame.tier : fishingBiteTier;
+
+  if (success) {
+    const speciesKey = rollFishSpecies(tier);
+    const length = rollFishLength(speciesKey);
+    registerCatch(speciesKey, false, length);
+    const gain = 1 + (Math.random() < 0.25 ? 1 : 0);
+    state.res.fish += gain;
+    spawnFloatingText(`🐟+${gain}`);
+    checkFishAchievements(speciesKey, true);
+    showShareButton(speciesKey, length, tier);
+  } else {
+    const baitKey = fishingBaitKey;
+    let consumed = false;
+    if (baitKey && state.res[baitKey] >= 1) { state.res[baitKey] -= 1; consumed = true; }
+    toast(consumed ? "鱼跑掉了!消耗了鱼饵×1" : "鱼跑掉了!");
+    checkFishAchievements(null, false);
+  }
+
+  spendEnergy(3);
+  fishingState = "idle";
+  fishingBaitKey = null;
+  fishingBiteTier = null;
+  minigame = null;
+  removeMinigameOverlay();
+  updateUI();
+  save();
+}
+
+// ====== 社交分享卡片: 稀有/传说鱼捕获后展示"分享战绩"按钮, 点击生成可下载的PNG图片 ======
+let shareButtonTimer = null;
+
+function showShareButton(speciesKey, length, tier) {
+  removeShareButton();
+  const def = FISH[speciesKey];
+  const btn = document.createElement("button");
+  btn.id = "share-catch-btn";
+  btn.className = "share-catch-btn";
+  btn.textContent = `📤 分享战绩 (${def.icon}${def.name} ${length.toFixed(1)}cm)`;
+  btn.onclick = () => {
+    generateShareCard(speciesKey, length, tier);
+    removeShareButton();
+  };
+  document.body.appendChild(btn);
+  shareButtonTimer = setTimeout(removeShareButton, 6000);
+}
+
+function removeShareButton() {
+  const el = document.getElementById("share-catch-btn");
+  if (el) el.remove();
+  if (shareButtonTimer) { clearTimeout(shareButtonTimer); shareButtonTimer = null; }
+}
+
+// 根据体长匹配一个日常物品作比例参照, 增强分享卡的"炫耀感"
+function lengthComparisonLabel(cm) {
+  if (cm < 20) return "一支圆珠笔";
+  if (cm < 50) return "一把雨伞";
+  if (cm < 90) return "一把吉他";
+  if (cm < 140) return "一扇门";
+  return "一个成年人";
+}
+
+function generateShareCard(speciesKey, length, tier) {
+  const def = FISH[speciesKey];
+  const isLeg = tier === "legendary";
+  const W = 600, H = 800;
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = H;
+  const c = cv.getContext("2d");
+
+  // 背景: 海洋渐变
+  const grad = c.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, "#0a1f33");
+  grad.addColorStop(0.55, "#0f3a4a");
+  grad.addColorStop(1, "#123f4f");
+  c.fillStyle = grad;
+  c.fillRect(0, 0, W, H);
+
+  // 装饰性水波纹底纹
+  c.strokeStyle = "rgba(255,255,255,0.08)";
+  c.lineWidth = 2;
+  for (let i = 0; i < 6; i++) {
+    c.beginPath();
+    c.arc(W / 2, H * 0.42, 90 + i * 40, 0, Math.PI * 2);
+    c.stroke();
+  }
+
+  // 标题
+  c.textAlign = "center";
+  c.fillStyle = "#eef6ff";
+  c.font = "bold 30px sans-serif";
+  c.fillText("星际钓鱼 🎣", W / 2, 70);
+
+  // 中央鱼图标 (像素鱼放大绘制, 否则用大号emoji)
+  const pg = FISH_PIXEL_GRIDS[speciesKey];
+  if (def.pixel && pg) {
+    const scale = 14;
+    const gw = pg.grid[0].length * scale, gh = pg.grid.length * scale;
+    const ox = W / 2 - gw / 2, oy = H * 0.30 - gh / 2;
+    c.imageSmoothingEnabled = false;
+    for (let row = 0; row < pg.grid.length; row++) {
+      for (let col = 0; col < pg.grid[row].length; col++) {
+        const ch = pg.grid[row][col];
+        if (ch === ".") continue;
+        c.fillStyle = pg.colors[ch];
+        c.fillRect(ox + col * scale, oy + row * scale, scale, scale);
+      }
+    }
+  } else {
+    c.font = "160px sans-serif";
+    c.fillText(def.icon, W / 2, H * 0.36);
+  }
+
+  // 鱼名 + 稀有度徽章
+  c.font = "bold 26px sans-serif";
+  c.fillStyle = "#eef6ff";
+  c.fillText(def.name, W / 2, H * 0.46);
+
+  const badgeColor = isLeg ? "#ffd86b" : "#ff8bd1";
+  c.fillStyle = badgeColor;
+  const badgeText = RARITY_LABEL[tier] || RARITY_LABEL.rare;
+  c.font = "bold 16px sans-serif";
+  const badgeW = c.measureText(badgeText).width + 28;
+  c.beginPath();
+  c.roundRect ? c.roundRect(W / 2 - badgeW / 2, H * 0.485, badgeW, 30, 15) : c.rect(W / 2 - badgeW / 2, H * 0.485, badgeW, 30);
+  c.fill();
+  c.fillStyle = "#1a1a1a";
+  c.fillText(badgeText, W / 2, H * 0.485 + 21);
+
+  // 大号体长数字
+  c.fillStyle = "#ffd86b";
+  c.font = "bold 64px sans-serif";
+  c.fillText(`${length.toFixed(1)} cm`, W / 2, H * 0.62);
+
+  // 挑战语
+  c.fillStyle = "rgba(238,246,255,0.75)";
+  c.font = "16px sans-serif";
+  c.fillText(`你见过这么大的${def.name}吗?来挑战我?`, W / 2, H * 0.665);
+
+  // 底部: 长度参照尺子 (简单横条 + 参照物文字)
+  const rulerY = H * 0.78;
+  const rulerMaxW = W - 120;
+  const rulerW = Math.max(40, Math.min(rulerMaxW, (length / 150) * rulerMaxW));
+  c.fillStyle = "rgba(255,216,107,0.85)";
+  c.fillRect(W / 2 - rulerW / 2, rulerY, rulerW, 14);
+  c.strokeStyle = "#eef6ff";
+  c.lineWidth = 2;
+  c.strokeRect(W / 2 - rulerW / 2, rulerY, rulerW, 14);
+  c.fillStyle = "rgba(238,246,255,0.85)";
+  c.font = "14px sans-serif";
+  c.fillText(`约等于 ${lengthComparisonLabel(length)} 的长度`, W / 2, rulerY + 40);
+
+  // 水印
+  c.fillStyle = "rgba(238,246,255,0.5)";
+  c.font = "12px sans-serif";
+  c.fillText("星际钓鱼 · 试试你的手气", W / 2, H - 24);
+
+  c.textAlign = "left";
+
+  const dataUrl = cv.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = `星际钓鱼_${def.name}_${length.toFixed(1)}cm.png`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  toast("战绩卡片已生成,长按/保存图片即可分享 📤");
 }
 
 function rodUpgradeCost() {
@@ -1484,11 +1840,16 @@ function renderBestiary() {
       iconHtml = "❓";
     }
 
+    const recordHtml = entry && entry.record
+      ? `<div class="fish-record">🏆 最长记录: ${entry.record.length.toFixed(1)} cm · ${new Date(entry.record.caughtAt).toLocaleDateString()}</div>`
+      : "";
+
     card.innerHTML = `
-      <div class="fish-icon">${iconHtml}</div>
+      <div class="fish-icon">${iconHtml}${entry && entry.record ? '<span class="fish-record-badge">🏆</span>' : ""}</div>
       <div class="fish-name">${entry ? def.name : "???"}</div>
       <div class="rarity-tag rarity-${def.rarity}">${RARITY_LABEL[def.rarity]}</div>
       <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${entry.firstZone === "river" ? "河流" : "溪流"}` : "尚未发现"}</div>
+      ${recordHtml}
     `;
     grid.appendChild(card);
   });
@@ -1992,15 +2353,18 @@ function renderFishRow() {
       progressWrap.classList.remove("hidden");
       progressFill.style.width = `${progressPct}%`;
     } else if (fishingState === "biting") {
-      const biteLabel = fishingBiteTier === "legendary" ? "⬆️ 传说鱼!精准拉线!" :
-                        fishingBiteTier === "rare"      ? "⬆️ 稀有鱼!精准拉线!" : "⬆️ 拉线!";
-      fishBtn.textContent = biteLabel;
+      fishBtn.textContent = "⬆️ 拉线!";
       fishBtn.disabled = false;
       fishBtn.classList.add("biting");
       progressWrap.classList.remove("hidden");
       progressFill.style.width = `${progressPct}%`;
     } else if (fishingState === "pulling") {
       fishBtn.textContent = "🎣 收线中…";
+      fishBtn.disabled = true;
+      progressWrap.classList.add("hidden");
+    } else if (fishingState === "minigame") {
+      const label = fishingBiteTier === "legendary" ? "✨ 传说鱼上钩!点击屏幕!" : "💖 稀有鱼上钩!点击屏幕!";
+      fishBtn.textContent = label;
       fishBtn.disabled = true;
       progressWrap.classList.add("hidden");
     }
@@ -3264,65 +3628,10 @@ function drawScene() {
     ctx.globalAlpha = 1;
   }
 
-  // 精准小游戏条 (稀有/传说鱼咬钩时显示, 玩家需要点击时机令指针落在目标区间内)
-  if (fishingState === "biting" && fishingBiteTier && fishingBiteTier !== "common" && fishingBarHit === null) {
-    const now2 = Date.now();
-    if (fishingBarLastUpdate > 0) {
-      const dtSec = Math.min(0.1, (now2 - fishingBarLastUpdate) / 1000);
-      const speed = BAR_CONFIG.baseSpeedPerSec * (1 - state.rodLevel * BAR_CONFIG.speedReductionPerLevel);
-      fishingBarMarker += fishingBarDir * speed * dtSec;
-      if (fishingBarMarker >= 1) { fishingBarMarker = 1; fishingBarDir = -1; }
-      if (fishingBarMarker <= 0) { fishingBarMarker = 0; fishingBarDir = 1; }
-    }
-    fishingBarLastUpdate = now2;
-
-    const { x, y, w, h, markerH } = BAR_CONFIG;
-    const isLeg = fishingBiteTier === "legendary";
-    const accent = isLeg ? "#ffd86b" : "#5bd17a";
-    const inZone = fishingBarMarker >= fishingBarTargetY && fishingBarMarker <= fishingBarTargetY + fishingBarTargetH;
-
-    // 背景板
-    ctx.fillStyle = "rgba(8,18,30,0.88)";
-    ctx.fillRect(x - 4, y - 22, w + 8, h + 28);
-
-    // 标签
-    ctx.fillStyle = accent;
-    ctx.font = "bold 10px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(isLeg ? "✨传说" : "💖稀有", x + w / 2, y - 7);
-    ctx.textAlign = "left";
-
-    // 条背景
-    ctx.fillStyle = "#0a1622";
-    ctx.fillRect(x, y, w, h);
-
-    // 目标区间
-    ctx.fillStyle = accent;
-    ctx.globalAlpha = 0.45;
-    ctx.fillRect(x, y + fishingBarTargetY * h, w, fishingBarTargetH * h);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x, y + fishingBarTargetY * h, w, fishingBarTargetH * h);
-
-    // 移动指针
-    const markerPxY = y + fishingBarMarker * h - markerH / 2;
-    ctx.fillStyle = inZone ? "#ffffff" : "#888888";
-    ctx.fillRect(x - 3, markerPxY, w + 6, markerH);
-
-    // 外框
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(x, y, w, h);
-
-    // 提示
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "9px sans-serif";
-    ctx.textAlign = "center";
-    ctx.globalAlpha = 0.85;
-    ctx.fillText("拉线!", x + w / 2, y + h + 14);
-    ctx.globalAlpha = 1;
-    ctx.textAlign = "left";
+  // 稀有/传说鱼精准小游戏: 逻辑更新 + 绘制 (居中浮层, 详见 startMinigame/updateMinigame/drawMinigame)
+  if (fishingState === "minigame" && minigame) {
+    updateMinigame();
+    drawMinigame();
   }
 
   // 木筏彩旗 (商店购买的装饰, 固定立在木筏左侧)
@@ -3419,8 +3728,7 @@ function gameTick() {
     while (state.autocollectorAccum >= CONFIG.AUTO_COLLECTOR_INTERVAL) {
       state.autocollectorAccum -= CONFIG.AUTO_COLLECTOR_INTERVAL;
       if (Math.random() < CONFIG.AUTO_COLLECTOR_CHANCE) {
-        const table = state.era === "iron" ? LOOT_TABLE_IRON : LOOT_TABLE_STONE;
-        const loot = pick(table);
+        const loot = pickWeighted(autoCollectorLootTable());
         const scaledLoot = {};
         for (const k in loot) {
           scaledLoot[k] = Math.max(1, Math.round(loot[k] * CONFIG.AUTO_COLLECTOR_QTY_MULT));
