@@ -294,15 +294,17 @@ function load() {
       Object.assign(state, data);
       state.res = Object.assign({ wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0 }, data.res);
 
-      // 旧存档兼容: zoneExpansions → raftSlots (全局持久格数)
+      // 旧存档兼容: zoneExpansions → raftSlots (全局持久格数, 木筏格数的唯一数据源)
+      // 迁移原则: 取玩家曾经合法达到过的最大格数, 绝不缩水; 迁移完成后删除旧的分流域字段, 避免死数据残留
       if (data.raftSlots === undefined && data.zoneExpansions) {
         const ze = data.zoneExpansions;
         const streamSlots = 4 + (ze.stream || 0) * 1;
         const riverSlots = 9 + (ze.river || 0) * 4;
-        state.raftSlots = Math.max(streamSlots, riverSlots);
+        state.raftSlots = Math.max(streamSlots, riverSlots, CONFIG.INITIAL_RAFT_SLOTS);
       } else {
         state.raftSlots = data.raftSlots !== undefined ? data.raftSlots : CONFIG.INITIAL_RAFT_SLOTS;
       }
+      delete state.zoneExpansions;
       state.builds = Object.assign({ net: false, furnace: false, autocollector: false, rod: false, hammer: false, purifier: false }, data.builds);
       state.bestiary = data.bestiary || {};
       state.blueprints = data.blueprints || {};
@@ -509,11 +511,12 @@ function sturdyMitigation() {
 }
 
 // ====== 木筏面积/扩建 ======
-// raftSlots 是全局持久属性; 各流域只限制上限 (溪流≤9, 河流≤25); 已扩建面积跨流域保留
+// state.raftSlots 是木筏格数的唯一数据源(Single Source of Truth), 只能被 doExpandRaft() 显式修改。
+// 各流域的 ZONE_SLOTS.max 仅用作"在该流域内是否还能继续扩建"的门槛, 绝不能用来对已达成的格数做上限/下限裁剪——
+// 否则会出现"切换流域时木筏显示的格数忽大忽小"的历史bug (根因即此前 zoneTotalSlots 用 cfg.base 做了展示层下限)。
 function zoneSlotConfig(zone) { return CONFIG.ZONE_SLOTS[zone] || CONFIG.ZONE_SLOTS.stream; }
-function zoneTotalSlots(zone) {
-  const cfg = zoneSlotConfig(zone);
-  return Math.max(cfg.base, Math.min(cfg.max, state.raftSlots));
+function zoneTotalSlots() {
+  return state.raftSlots;
 }
 function canExpandZone(zone) {
   const cfg = zoneSlotConfig(zone);
@@ -2520,9 +2523,9 @@ function openCraftModal() {
 
 function costLineHtml(cost) {
   return Object.entries(cost).map(([k, v]) => {
-    const have = state.res[k] || 0;
+    const have = Math.floor(state.res[k] || 0);
     const cls = have >= v ? "cost-ok" : "cost-bad";
-    return `<span class="${cls}">${ICONS[k] || ""}${RES_LABEL[k] || k}×${v}</span>`;
+    return `<span class="${cls}">${ICONS[k] || ""}${RES_LABEL[k] || k} ${have}/${v}</span>`;
   }).join(" ");
 }
 
@@ -2750,17 +2753,40 @@ function renderGuide() {
 }
 
 // ====== 背包系统 (固定右上角, 统一管理消耗品: 食用/丢弃/售卖) ======
+// category: "material" | "food" | "item" —— 背包按此分组显示标题(材料/食物/道具)
+// 注意: 这里必须覆盖 state.res 的每一个key, 否则该资源会在UI上"隐形"(历史上scrap等材料就因遗漏于此而消失过, 详见下方 auditBagItemCoverage 自检)
 const BAG_ITEMS = [
-  { key: "fish", icon: "🐟", name: "鱼", eat: () => doEat("fish"), eatLabel: `精力+${FOOD_DEFS.fish.restore}`, sellPrice: FISH_SELL_PRICE },
-  { key: "bread", icon: "🍞", name: "面包", eat: () => doEat("bread"), eatLabel: `精力+${FOOD_DEFS.bread.restore}`, sellPrice: 2 },
-  { key: "spam", icon: "🥫", name: "午餐肉", eat: () => doEat("spam"), eatLabel: `精力+${FOOD_DEFS.spam.restore}`, sellPrice: 3 },
-  { key: "water", icon: "💧", name: "净水", eat: () => doDrink(), eatLabel: "精力+10", sellPrice: 1 },
-  { key: "coconut", icon: "🥥", name: "椰子", eat: () => doEatCoconutRaw(), eatLabel: `精力+${CONFIG.COCONUT_RAW_RESTORE}`, sellPrice: 1 },
-  { key: "coconut_meat", icon: "🍖", name: "椰子肉", eat: () => doEatCoconutMeat(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
-  { key: "coconut_juice", icon: "🥤", name: "椰子汁", eat: () => doEatCoconutJuice(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
-  { key: "jerky", icon: "🍢", name: "鱼干", eat: () => doFeedPet(), eatLabel: "宠物饱食度+", actionLabel: "喂宠物", sellPrice: 2 },
-  { key: "raftkit", icon: "🧰", name: "修复包", eat: null, sellPrice: 3 },
+  { key: "wood", icon: "🪵", name: "木头", category: "material", eat: null, sellPrice: 1 },
+  { key: "rope", icon: "🧵", name: "绳子", category: "material", eat: null, sellPrice: 1 },
+  { key: "scrap", icon: "🔧", name: "废铁", category: "material", eat: null, sellPrice: 1 },
+  { key: "iron", icon: "🔩", name: "铁块", category: "material", eat: null, sellPrice: 2 },
+  { key: "seaweed", icon: "🌿", name: "水草", category: "material", eat: null, sellPrice: 1 },
+  { key: "plastic", icon: "♻️", name: "塑料", category: "material", eat: null, sellPrice: 1 },
+  { key: "trash", icon: "🗑️", name: "垃圾", category: "material", eat: null, sellPrice: 1 },
+
+  { key: "fish", icon: "🐟", name: "鱼", category: "food", eat: () => doEat("fish"), eatLabel: `精力+${FOOD_DEFS.fish.restore}`, sellPrice: FISH_SELL_PRICE },
+  { key: "bread", icon: "🍞", name: "面包", category: "food", eat: () => doEat("bread"), eatLabel: `精力+${FOOD_DEFS.bread.restore}`, sellPrice: 2 },
+  { key: "spam", icon: "🥫", name: "午餐肉", category: "food", eat: () => doEat("spam"), eatLabel: `精力+${FOOD_DEFS.spam.restore}`, sellPrice: 3 },
+  { key: "water", icon: "💧", name: "净水", category: "food", eat: () => doDrink(), eatLabel: "精力+10", sellPrice: 1 },
+  { key: "coconut", icon: "🥥", name: "椰子", category: "food", eat: () => doEatCoconutRaw(), eatLabel: `精力+${CONFIG.COCONUT_RAW_RESTORE}`, sellPrice: 1 },
+  { key: "coconut_meat", icon: "🍖", name: "椰子肉", category: "food", eat: () => doEatCoconutMeat(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
+  { key: "coconut_juice", icon: "🥤", name: "椰子汁", category: "food", eat: () => doEatCoconutJuice(), eatLabel: `精力+${CONFIG.COCONUT_CRACK_RESTORE}`, sellPrice: 2 },
+
+  { key: "jerky", icon: "🍢", name: "鱼干", category: "item", eat: () => doFeedPet(), eatLabel: "宠物饱食度+", actionLabel: "喂宠物", sellPrice: 2 },
+  { key: "raftkit", icon: "🧰", name: "修复包", category: "item", eat: null, sellPrice: 3 },
 ];
+const BAG_CATEGORY_LABEL = { material: "材料", food: "食物", item: "道具" };
+const BAG_CATEGORY_ORDER = ["material", "food", "item"];
+
+// 自检: 确保 state.res 里每个资源key都能在 BAG_ITEMS 找到对应的展示项, 避免未来新增资源时又"静默消失"
+function auditBagItemCoverage() {
+  const covered = new Set(BAG_ITEMS.map(i => i.key));
+  Object.keys(state.res).forEach(k => {
+    if (!covered.has(k)) {
+      console.warn(`[背包自检] 资源 "${k}" 在 state.res 中存在, 但没有对应的 BAG_ITEMS 展示项, 会在UI上不可见! 请在 BAG_ITEMS 中补充它的图标/名称/分类。`);
+    }
+  });
+}
 
 function doDiscardBagItem(key, amount) {
   const n = Math.min(amount, Math.floor(state.res[key] || 0));
@@ -2787,51 +2813,58 @@ function doSellBagItem(key, amount) {
   save();
 }
 
+// 完整库存: 每个 state.res 里的资源都会出现(哪怕数量为0, 只是变暗), 按 材料/食物/道具 分组展示
 function renderBagModal() {
   const grid = document.getElementById("bag-grid");
   if (!grid) return;
   grid.innerHTML = "";
 
-  const owned = BAG_ITEMS.filter(i => (state.res[i.key] || 0) > 0);
-  if (!owned.length) {
-    grid.innerHTML = `<div class="bag-empty">背包是空的,去打捞点东西回来吧</div>`;
-    return;
-  }
+  BAG_CATEGORY_ORDER.forEach(cat => {
+    const items = BAG_ITEMS.filter(i => i.category === cat);
+    if (!items.length) return;
 
-  owned.forEach(item => {
-    const count = Math.floor(state.res[item.key] || 0);
-    const card = document.createElement("div");
-    card.className = "bag-card";
-    const expanded = bagExpandedKey === item.key;
-    card.innerHTML = `
-      <div class="bag-card-main">
-        <span class="bag-card-icon">${item.icon}</span>
-        <span class="bag-card-name">${item.name}</span>
-        <span class="bag-card-count">×${count}</span>
-      </div>
-      ${expanded ? `
-        <div class="bag-actions">
-          ${item.eat ? `<button class="bag-action-btn" id="bag-eat" ${item.key === "jerky" && !state.pet ? "disabled" : ""}>${item.actionLabel || "食用"} (${item.eatLabel})</button>` : ""}
-          <button class="bag-action-btn" id="bag-discard">丢弃</button>
-          <button class="bag-action-btn sell" id="bag-sell">售卖 (🪙${item.sellPrice}/个)</button>
+    const header = document.createElement("div");
+    header.className = "bag-category-title";
+    header.textContent = BAG_CATEGORY_LABEL[cat];
+    grid.appendChild(header);
+
+    items.forEach(item => {
+      const count = Math.floor(state.res[item.key] || 0);
+      const empty = count < 1;
+      const card = document.createElement("div");
+      card.className = "bag-card" + (empty ? " bag-card-empty" : "");
+      const expanded = bagExpandedKey === item.key;
+      card.innerHTML = `
+        <div class="bag-card-main">
+          <span class="bag-card-icon">${item.icon}</span>
+          <span class="bag-card-name">${item.name}</span>
+          <span class="bag-card-count">×${count}</span>
         </div>
-      ` : ""}
-    `;
-    card.querySelector(".bag-card-main").onclick = () => {
-      bagExpandedKey = expanded ? null : item.key;
-      renderBagModal();
-    };
-    if (expanded) {
-      if (item.eat) card.querySelector("#bag-eat").onclick = (e) => {
-        e.stopPropagation();
-        item.eat();
-        // 食用后保持该物品展开, 方便连续吃多个; 若数量已吃完(卡片消失)则无需处理
+        ${expanded ? `
+          <div class="bag-actions">
+            ${item.eat ? `<button class="bag-action-btn" id="bag-eat" ${empty || (item.key === "jerky" && !state.pet) ? "disabled" : ""}>${item.actionLabel || "食用"} (${item.eatLabel})</button>` : ""}
+            <button class="bag-action-btn" id="bag-discard" ${empty ? "disabled" : ""}>丢弃</button>
+            <button class="bag-action-btn sell" id="bag-sell" ${empty ? "disabled" : ""}>售卖 (🪙${item.sellPrice}/个)</button>
+          </div>
+        ` : ""}
+      `;
+      card.querySelector(".bag-card-main").onclick = () => {
+        bagExpandedKey = expanded ? null : item.key;
         renderBagModal();
       };
-      card.querySelector("#bag-discard").onclick = (e) => { e.stopPropagation(); doDiscardBagItem(item.key, 1); };
-      card.querySelector("#bag-sell").onclick = (e) => { e.stopPropagation(); doSellBagItem(item.key, 1); };
-    }
-    grid.appendChild(card);
+      if (expanded) {
+        if (item.eat) card.querySelector("#bag-eat").onclick = (e) => {
+          e.stopPropagation();
+          if (empty) return;
+          item.eat();
+          // 食用后保持该物品展开, 方便连续吃多个; 若数量已吃完则卡片自动变暗
+          renderBagModal();
+        };
+        card.querySelector("#bag-discard").onclick = (e) => { e.stopPropagation(); if (!empty) doDiscardBagItem(item.key, 1); };
+        card.querySelector("#bag-sell").onclick = (e) => { e.stopPropagation(); if (!empty) doSellBagItem(item.key, 1); };
+      }
+      grid.appendChild(card);
+    });
   });
 }
 
@@ -3233,12 +3266,12 @@ function isBuiltKey(key) {
 // 木筏: 按当前流域面积动态拼成方格网, 已建成的建筑渲染对应像素占位图, 扩建出的空槽位用浅色虚线边框提示
 let raftDisplayedSlots = 4;
 function drawRaft() {
-  const zone = state.zone;
-  const targetSlots = zoneTotalSlots(zone);
+  const targetSlots = zoneTotalSlots();
   raftDisplayedSlots += (targetSlots - raftDisplayedSlots) * 0.08;
 
   const builtKeys = BUILDING_RENDER_ORDER.filter(isBuiltKey);
-  const baseCount = zoneSlotConfig(zone).base;
+  // 虚线边框(标记"扩建出的格子")的分界线用初始格数, 与当前流域无关, 否则会造成格子数量随流域忽大忽小的观感
+  const baseCount = CONFIG.INITIAL_RAFT_SLOTS;
   // 角色固定站在 row0/col1, 宠物(若存在)站在角色右边一格(row0/col2): 这两格永远空出来,
   // 不放建筑像素图, 否则建筑会被站在格子里的角色/宠物挡住或反过来盖住建筑
   const reservedCellCount = 1 + (state.pet ? 1 : 0);
@@ -3941,6 +3974,7 @@ function gameTick() {
 
 // ====== 初始化 ======
 load();
+auditBagItemCoverage();
 loadCostume();
 document.getElementById("btn-fish-loot").onclick = doFishLoot;
 document.getElementById("btn-rummage").onclick = doRummage;

@@ -512,12 +512,21 @@ html, body {
 .bag-box h2 { text-align: center; }
 .bag-empty { font-size: 12px; opacity: 0.7; text-align: center; padding: 10px 0; }
 #bag-grid { display: flex; flex-direction: column; gap: 8px; }
+.bag-category-title {
+  font-size: 12px;
+  font-weight: bold;
+  color: #8fe3c8;
+  margin: 10px 0 2px;
+}
+.bag-category-title:first-child { margin-top: 0; }
 .bag-card {
   background: #0e2030;
   border: 2px solid #2a4a64;
   border-radius: 8px;
   padding: 8px 10px;
 }
+/* 数量为0的资源仍然显示(不再隐藏), 但整体调暗以区分"曾拥有过/尚未获得"与"当前持有" */
+.bag-card-empty { opacity: 0.4; }
 .bag-card-main {
   display: flex;
   align-items: center;
