@@ -80,6 +80,12 @@ const MINIGAME_CONFIG = {
   legendaryDurationMs: 12000,
   flashDurationMs: 500,         // 结算后的闪光展示时长 (仅在最终成功/失败时使用)
   tapFlashDurationMs: 260,      // 每次点击瞬间的命中/落空反馈闪光时长
+
+  // --- 咬钩预警 (小游戏正式开始前的缓冲提示, 让玩家反应过来, 避免措手不及/误触) ---
+  biteAlertDurationMs: 1200,    // 预警冻结时长: 期间不接受点击, 小游戏输入捕获层要等预警结束才创建
+  biteAlertBounceAmp: 5,        // "❗咬钩了!"文字的上下跳动振幅(px)
+  biteAlertBounceSpeed: 0.02,   // 文字跳动速度(弧度/毫秒)
+  biteAlertShakeAmp: 4,         // 屏幕整体抖动振幅(px), 随预警进行逐渐衰减到0
 };
 
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
@@ -110,7 +116,8 @@ function refreshOpenWorkshopPanels() {
 }
 
 // ====== 钓鱼动画状态机 ======
-// idle -> casting(抛线0.5s) -> waiting(等待咬钩1.5~3s) -> biting(咬钩窗口0.8s) -> pulling(拉线0.5s) -> idle
+// 普通鱼: idle -> casting(抛线0.5s) -> waiting(等待咬钩1.5~3s) -> biting(咬钩窗口0.8s) -> pulling(拉线0.5s) -> idle
+// 稀有/传说鱼: ...-> waiting -> bitealert(咬钩预警~1.2s, 见 MINIGAME_CONFIG.biteAlertDurationMs) -> minigame(精准小游戏) -> idle
 let fishingState = "idle";
 let fishingPhaseUntil = 0;
 let fishingPhaseDur = 0;            // 当前阶段总时长(ms), 用于进度条计算
@@ -124,6 +131,7 @@ let fishRippleAccum = 0;
 let fishingBiteTier = null;         // "common"|"rare"|"legendary" 咬钩阶段预判
 let minigame = null;                // 小游戏运行时状态对象, 见 startMinigame()
 let minigameOverlayEl = null;       // 全屏输入捕获层 (小游戏进行时点击任意处让指针上浮)
+let biteAlertStartAt = 0;           // 咬钩预警阶段开始时间戳, 用于文字跳动/屏幕抖动的计时
 
 // ====== 角色换装系统 (奇幻镜) ======
 const COSTUME_SAVE_KEY = "costume_state";
@@ -837,16 +845,18 @@ function registerCatch(fishKey, isExtra, length) {
     }
   }
 
-  const lenTag = typeof length === "number" ? ` (${length.toFixed(1)}cm${isNewRecord ? " 🏆新纪录!" : ""})` : "";
+  // 普通鱼: 只报体长, 不提"新纪录"(减少刷屏噪音); 稀有/传说: 破纪录时保留"📏 新纪录!"庆祝语
+  const rareLenTag = typeof length === "number" ? ` (${length.toFixed(1)}cm${isNewRecord ? " 📏新纪录!" : ""})` : "";
   if (def.rarity === "legendary") {
     state.skillPoints.fish += 3;
     flashLegendary();
-    toast(`✨✨ 传说级!钓到了 ${def.icon}${def.name}${lenTag}! 钓鱼点+3 ✨✨`);
+    toast(`✨✨ 传说级!钓到了 ${def.icon}${def.name}${rareLenTag}! 钓鱼点+3 ✨✨`);
   } else if (def.rarity === "rare") {
     state.skillPoints.fish += 1;
-    toast(`💖 稀有!钓到了 ${def.icon}${def.name}${lenTag}! 钓鱼点+1`);
+    toast(`💖 稀有!钓到了 ${def.icon}${def.name}${rareLenTag}! 钓鱼点+1`);
   } else if (!isExtra) {
-    toast(`钓上了 ${def.icon}${def.name}${lenTag}`);
+    const commonLenTag = typeof length === "number" ? ` ${length.toFixed(1)}cm` : "";
+    toast(`${def.icon} ${def.name}${commonLenTag}`);
   }
   return isNewRecord;
 }
@@ -1045,11 +1055,11 @@ function enterFishWaitPhase() {
 }
 
 // 普通鱼: 沿用原有"抛线->等待->咬钩(0.8s窗口, 点击拉线)->收线"流程, 无小游戏
-// 稀有/传说鱼: 跳过咬钩窗口, 直接进入精准小游戏 (见 startMinigame)
+// 稀有/传说鱼: 先经过一小段"咬钩预警"缓冲, 再进入精准小游戏 (见 startBiteAlert / startMinigame)
 function enterFishBitePhase() {
   fishingBiteTier = rollFishTierWithBait(fishingBaitKey);
   if (fishingBiteTier !== "common") {
-    startMinigame(fishingBiteTier);
+    startBiteAlert(fishingBiteTier);
     return;
   }
   fishingState = "biting";
@@ -1057,6 +1067,20 @@ function enterFishBitePhase() {
   fishingPhaseUntil = Date.now() + fishingPhaseDur;
   updateUI();
   fishingTimer = setTimeout(missFishBite, 800);
+}
+
+// 咬钩预警: 小游戏正式开始前冻结~1.2s, 显示"❗咬钩了!"+屏幕抖动(传说鱼额外触发全屏金光特效), 让玩家反应过来。
+// 此阶段还没有创建小游戏的全屏输入捕获层(见 ensureMinigameOverlay 在 startMinigame 里才调用),
+// 所以这段时间的点击不会被误判为小游戏操作, 天然满足"预警期间不接受点击"的要求。
+function startBiteAlert(tier) {
+  fishingState = "bitealert";
+  biteAlertStartAt = Date.now();
+  fishingPhaseDur = MINIGAME_CONFIG.biteAlertDurationMs;
+  fishingPhaseUntil = biteAlertStartAt + MINIGAME_CONFIG.biteAlertDurationMs;
+  if (tier === "legendary") flashLegendary();
+  clearTimeout(fishingTimer);
+  updateUI();
+  fishingTimer = setTimeout(() => startMinigame(tier), MINIGAME_CONFIG.biteAlertDurationMs);
 }
 
 function missFishBite() {
@@ -1947,12 +1971,16 @@ function renderBestiary() {
       iconHtml = "❓";
     }
 
-    const recordHtml = entry && entry.record
-      ? `<div class="fish-record">🏆 最长记录: ${entry.record.length.toFixed(1)} cm · ${new Date(entry.record.caughtAt).toLocaleDateString()}</div>`
-      : "";
+    // 🏆 皇冠徽章已移除(所有稀有度); 普通鱼只显示体长, 稀有/传说额外附上破纪录日期
+    let recordHtml = "";
+    if (entry && entry.record) {
+      const dateStr = new Date(entry.record.caughtAt).toISOString().slice(0, 10);
+      const dateTag = def.rarity !== "common" ? ` · ${dateStr}` : "";
+      recordHtml = `<div class="fish-record">最长纪录: ${entry.record.length.toFixed(1)}cm${dateTag}</div>`;
+    }
 
     card.innerHTML = `
-      <div class="fish-icon">${iconHtml}${entry && entry.record ? '<span class="fish-record-badge">🏆</span>' : ""}</div>
+      <div class="fish-icon">${iconHtml}</div>
       <div class="fish-name">${entry ? def.name : "???"}</div>
       <div class="rarity-tag rarity-${def.rarity}">${RARITY_LABEL[def.rarity]}</div>
       <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${entry.firstZone === "river" ? "河流" : "溪流"}` : "尚未发现"}</div>
@@ -2367,30 +2395,31 @@ function updateUI() {
   fillEl.classList.toggle("mid", energyPct >= 30 && energyPct < 80);
   document.getElementById("energy-value").textContent = `${Math.round(state.energy)}/100${state.energy <= 0 ? " (疲惫)" : ""}`;
 
-  // 图标导航栏是纯图标按钮, 不再显示完整文案 —— 状态说明改放进 title (长按/悬停提示), 不可用时仅置灰
+  // 图标导航栏按钮内含 .nav-icon(图标)+.nav-label(常驻小字"换区") —— 只切换图标和title, 标签文字不变
   const zoneBtn = document.getElementById("btn-zone-switch");
+  const zoneBtnIcon = zoneBtn.querySelector(".nav-icon");
   const now = Date.now();
   if (state.zone === "stream") {
     if (now < state.zoneCooldownUntil) {
-      zoneBtn.textContent = "⛵";
+      zoneBtnIcon.textContent = "⛵";
       zoneBtn.title = `冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
       zoneBtn.disabled = true;
     } else if (state.era !== "iron") {
-      zoneBtn.textContent = "🔒";
+      zoneBtnIcon.textContent = "🔒";
       zoneBtn.title = "前往河流 (需铁器时代)";
       zoneBtn.disabled = true;
     } else {
-      zoneBtn.textContent = "⛵";
+      zoneBtnIcon.textContent = "⛵";
       zoneBtn.title = "前往河流";
       zoneBtn.disabled = false;
     }
   } else {
     if (now < state.zoneCooldownUntil) {
-      zoneBtn.textContent = "🏞️";
+      zoneBtnIcon.textContent = "🏞️";
       zoneBtn.title = `冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
       zoneBtn.disabled = true;
     } else {
-      zoneBtn.textContent = "🏞️";
+      zoneBtnIcon.textContent = "🏞️";
       zoneBtn.title = "返回溪流";
       zoneBtn.disabled = false;
     }
@@ -2473,6 +2502,10 @@ function renderFishRow() {
       progressFill.style.width = `${progressPct}%`;
     } else if (fishingState === "pulling") {
       fishBtn.textContent = "🎣 收线中…";
+      fishBtn.disabled = true;
+      progressWrap.classList.add("hidden");
+    } else if (fishingState === "bitealert") {
+      fishBtn.textContent = "❗ 咬钩了!";
       fishBtn.disabled = true;
       progressWrap.classList.add("hidden");
     } else if (fishingState === "minigame") {
@@ -3706,6 +3739,16 @@ function drawScene() {
   updateBottleDrift();
 
   ctx.clearRect(0, 0, 360, 420);
+
+  // 咬钩预警期间整个画面轻微抖动(随时间衰减), 用 ctx.save/translate 包裹后续所有绘制, 结尾 ctx.restore() 还原
+  ctx.save();
+  if (fishingState === "bitealert") {
+    const alertElapsed = Date.now() - biteAlertStartAt;
+    const shakeDecay = Math.max(0, 1 - alertElapsed / MINIGAME_CONFIG.biteAlertDurationMs);
+    const shakeAmp = MINIGAME_CONFIG.biteAlertShakeAmp * shakeDecay;
+    ctx.translate((Math.random() - 0.5) * 2 * shakeAmp, (Math.random() - 0.5) * 2 * shakeAmp);
+  }
+
   drawWater();
   // 注: 静态石头/荷叶/芦苇/小花已经画进 bg_stream.png 背景图里了, 不再额外叠一层程序绘制的装饰
 
@@ -3771,6 +3814,11 @@ function drawScene() {
     ctx.globalAlpha = 1;
   }
 
+  // 咬钩预警: 冻结画面显示"❗咬钩了!"跳动大字 (小游戏正式开始前的缓冲提示)
+  if (fishingState === "bitealert") {
+    drawBiteAlert();
+  }
+
   // 稀有/传说鱼精准小游戏: 逻辑更新 + 绘制 (居中浮层, 详见 startMinigame/updateMinigame/drawMinigame)
   if (fishingState === "minigame" && minigame) {
     updateMinigame();
@@ -3810,7 +3858,23 @@ function drawScene() {
   }
 
   waveOffset += 0.15;
+  ctx.restore(); // 与开头 ctx.save()/咬钩预警抖动 配对
   requestAnimationFrame(drawScene);
+}
+
+// 咬钩预警画面: 半透明遮罩 + 居中"❗咬钩了!"大字, 文字随时间做正弦上下跳动
+function drawBiteAlert() {
+  const elapsed = Date.now() - biteAlertStartAt;
+  const bounceY = Math.sin(elapsed * MINIGAME_CONFIG.biteAlertBounceSpeed) * MINIGAME_CONFIG.biteAlertBounceAmp;
+
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(0, 0, 360, 420);
+
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffd86b";
+  ctx.font = "bold 30px sans-serif";
+  ctx.fillText("❗咬钩了!", 180, 210 + bounceY);
+  ctx.textAlign = "left";
 }
 
 canvas.addEventListener("click", (e) => {
@@ -3979,54 +4043,77 @@ loadCostume();
 document.getElementById("btn-fish-loot").onclick = doFishLoot;
 document.getElementById("btn-rummage").onclick = doRummage;
 document.getElementById("btn-zone-switch").onclick = doZoneSwitch;
-document.getElementById("btn-bestiary").onclick = () => {
-  renderBestiary();
-  document.getElementById("bestiary-modal").classList.remove("hidden");
+
+// ====== 统一面板切换: 所有信息/管理类弹窗都经过 openPanel(name), 保证同一时刻最多一个可见 ======
+// 点开一个面板时会自动关掉其它任何已开的面板(含漂流瓶弹窗), 无需先手动关闭再点开下一个;
+// 再次点击当前已打开面板对应的按钮 = 关闭(toggle), 不会重新打开。
+const PANEL_DEFS = {
+  guide: { id: "guide-modal" },
+  bag: { id: "bag-modal", render: () => { bagExpandedKey = null; renderBagModal(); } },
+  bestiary: { id: "bestiary-modal", render: renderBestiary },
+  blueprint: { id: "blueprint-modal", render: renderBlueprints },
+  skilltree: { id: "skilltree-modal", render: renderSkillTree },
+  achievement: { id: "achievement-modal", render: renderAchievements },
+  shop: { id: "shop-modal", render: renderShopModal },
+  costume: { id: "costume-modal", render: renderCostumeModal, guard: () => state.mirrorUnlocked },
+  build: { id: "build-modal", render: renderBuildModal },
+  craft: { id: "craft-modal", render: renderCraftModal },
 };
-document.getElementById("bestiary-close").onclick = () => {
-  document.getElementById("bestiary-modal").classList.add("hidden");
-};
-document.getElementById("btn-blueprints").onclick = () => {
-  renderBlueprints();
-  document.getElementById("blueprint-modal").classList.remove("hidden");
-};
-document.getElementById("blueprint-close").onclick = () => {
-  document.getElementById("blueprint-modal").classList.add("hidden");
-};
-document.getElementById("btn-skilltree").onclick = () => {
-  renderSkillTree();
-  document.getElementById("skilltree-modal").classList.remove("hidden");
-};
-document.getElementById("skilltree-close").onclick = () => {
-  document.getElementById("skilltree-modal").classList.add("hidden");
-};
-document.getElementById("btn-achievements").onclick = () => {
-  renderAchievements();
-  document.getElementById("achievement-modal").classList.remove("hidden");
-};
-document.getElementById("achievement-close").onclick = () => {
-  document.getElementById("achievement-modal").classList.add("hidden");
-};
-document.getElementById("btn-costume").onclick = () => {
-  if (!state.mirrorUnlocked) return;
-  renderCostumeModal();
-  document.getElementById("costume-modal").classList.remove("hidden");
-};
-document.getElementById("costume-close").onclick = () => {
-  document.getElementById("costume-modal").classList.add("hidden");
-};
+const PANEL_CLOSE_IDS = [...Object.values(PANEL_DEFS).map(p => p.id), "bottle-modal"];
+
+function closeAllPanels() {
+  PANEL_CLOSE_IDS.forEach(id => document.getElementById(id).classList.add("hidden"));
+}
+
+function openPanel(name) {
+  const def = PANEL_DEFS[name];
+  if (!def) return;
+  if (def.guard && !def.guard()) return;
+  const el = document.getElementById(def.id);
+  const alreadyOpen = !el.classList.contains("hidden");
+  closeAllPanels();
+  if (alreadyOpen) return; // 再点一次同一个按钮 = 收起
+  if (def.render) def.render();
+  el.classList.remove("hidden");
+}
+
+document.getElementById("btn-guide").onclick = () => openPanel("guide");
+document.getElementById("guide-close").onclick = () => document.getElementById("guide-modal").classList.add("hidden");
+
+document.getElementById("btn-bag").onclick = () => openPanel("bag");
+document.getElementById("bag-close").onclick = () => document.getElementById("bag-modal").classList.add("hidden");
+// 资源速览条: 点击整条(任意资源图标)打开背包查看完整库存
+document.getElementById("resource-strip").onclick = () => openPanel("bag");
+
+document.getElementById("btn-bestiary").onclick = () => openPanel("bestiary");
+document.getElementById("bestiary-close").onclick = () => document.getElementById("bestiary-modal").classList.add("hidden");
+
+document.getElementById("btn-blueprints").onclick = () => openPanel("blueprint");
+document.getElementById("blueprint-close").onclick = () => document.getElementById("blueprint-modal").classList.add("hidden");
+
+document.getElementById("btn-skilltree").onclick = () => openPanel("skilltree");
+document.getElementById("skilltree-close").onclick = () => document.getElementById("skilltree-modal").classList.add("hidden");
+
+document.getElementById("btn-achievements").onclick = () => openPanel("achievement");
+document.getElementById("achievement-close").onclick = () => document.getElementById("achievement-modal").classList.add("hidden");
+
+document.getElementById("btn-costume").onclick = () => openPanel("costume");
+document.getElementById("costume-close").onclick = () => document.getElementById("costume-modal").classList.add("hidden");
+
+document.getElementById("btn-shop").onclick = () => openPanel("shop");
+document.getElementById("shop-close").onclick = () => document.getElementById("shop-modal").classList.add("hidden");
+document.getElementById("shop-tab-sell").onclick = () => { shopTab = "sell"; renderShopModal(); };
+document.getElementById("shop-tab-buy").onclick = () => { shopTab = "buy"; renderShopModal(); };
+
+document.getElementById("btn-build").onclick = () => openPanel("build");
+document.getElementById("build-close").onclick = () => document.getElementById("build-modal").classList.add("hidden");
+
+document.getElementById("btn-craft").onclick = () => openPanel("craft");
+document.getElementById("craft-close").onclick = () => document.getElementById("craft-modal").classList.add("hidden");
+
 document.getElementById("event-close").onclick = () => {
   document.getElementById("event-modal").classList.add("hidden");
 };
-document.getElementById("btn-shop").onclick = () => {
-  renderShopModal();
-  document.getElementById("shop-modal").classList.remove("hidden");
-};
-document.getElementById("shop-close").onclick = () => {
-  document.getElementById("shop-modal").classList.add("hidden");
-};
-document.getElementById("shop-tab-sell").onclick = () => { shopTab = "sell"; renderShopModal(); };
-document.getElementById("shop-tab-buy").onclick = () => { shopTab = "buy"; renderShopModal(); };
 startOnboardingIfNeeded();
 
 // ====== 核心操作区: 钓鱼/工坊 绑定 ======
@@ -4035,32 +4122,6 @@ document.getElementById("btn-bait-arrow").onclick = () => {
   baitDropdownOpen = !baitDropdownOpen;
   syncDropdownVisibility();
 };
-
-document.getElementById("btn-build").onclick = openBuildModal;
-document.getElementById("build-close").onclick = () => {
-  document.getElementById("build-modal").classList.add("hidden");
-};
-document.getElementById("btn-craft").onclick = openCraftModal;
-document.getElementById("craft-close").onclick = () => {
-  document.getElementById("craft-modal").classList.add("hidden");
-};
-document.getElementById("btn-guide").onclick = () => {
-  document.getElementById("guide-modal").classList.toggle("hidden");
-};
-document.getElementById("guide-close").onclick = () => {
-  document.getElementById("guide-modal").classList.add("hidden");
-};
-function openBagModal() {
-  bagExpandedKey = null;
-  renderBagModal();
-  document.getElementById("bag-modal").classList.remove("hidden");
-}
-document.getElementById("btn-bag").onclick = openBagModal;
-document.getElementById("bag-close").onclick = () => {
-  document.getElementById("bag-modal").classList.add("hidden");
-};
-// 资源速览条: 点击整条(任意资源图标)打开背包查看完整库存
-document.getElementById("resource-strip").onclick = openBagModal;
 
 document.getElementById("bottle-close").onclick = () => {
   document.getElementById("bottle-modal").classList.add("hidden");

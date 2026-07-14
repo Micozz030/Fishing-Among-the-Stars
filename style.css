@@ -140,21 +140,24 @@ html, body {
 .icon-nav-btn {
   flex: 1 1 0;
   min-width: 0;
-  min-height: 40px;
+  height: 44px;
   max-width: 44px;
-  padding: 0;
-  font-size: 18px;
-  line-height: 1;
+  padding: 2px 0 3px;
   border: 2px solid #2a4a64;
   border-radius: 8px;
   background: #16324a;
   color: #cfe8f0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 1px;
+  overflow: hidden;
 }
 .icon-nav-btn:active { background: #11253a; }
 .icon-nav-btn:disabled { opacity: 0.4; }
+.icon-nav-btn .nav-icon { font-size: 16px; line-height: 1; }
+.icon-nav-btn .nav-label { font-size: 9px; line-height: 1; white-space: nowrap; color: #9fc3d6; }
 
 #legendary-flash {
   position: fixed; inset: 0;
@@ -609,7 +612,6 @@ html, body {
 .fish-card.unknown { opacity: 0.5; }
 .fish-icon { position: relative; font-size: 26px; line-height: 1; height: 32px; display: flex; align-items: center; justify-content: center; }
 .fish-icon canvas { image-rendering: pixelated; width: 32px; height: 32px; }
-.fish-record-badge { position: absolute; top: -6px; right: -10px; font-size: 13px; }
 .fish-name { font-size: 11.5px; font-weight: bold; }
 .fish-count { font-size: 10px; opacity: 0.8; }
 .fish-record { font-size: 9.5px; color: #ffd86b; opacity: 0.9; }
