@@ -403,7 +403,8 @@ html, body {
   width: 280px;
   text-align: center;
 }
-/* 右上角锚定面板专用: 上面这组面板的 .chest-box 需要固定贴右上角并可独立滚动 */
+/* 右上角锚定面板专用: 上面这组面板的 .chest-box 固定贴右上角, 自身不滚动(overflow:hidden) ——
+   容器内部拆成"不滚动的头部(标题+关闭按钮)" + ".chest-box-scroll 独立滚动的内容区", 关闭按钮因此永远可见可点 */
 #bestiary-modal .chest-box, #blueprint-modal .chest-box, #skilltree-modal .chest-box,
 #achievement-modal .chest-box, #costume-modal .chest-box, #shop-modal .chest-box, #bottle-modal .chest-box,
 #build-modal .chest-box, #craft-modal .chest-box, #guide-modal .chest-box, #bag-modal .chest-box {
@@ -414,22 +415,23 @@ html, body {
   margin: 0;
   max-width: calc(100vw - 16px);
   max-height: calc(100vh - 90px);
-  overflow-y: auto;
+  overflow: hidden;
   pointer-events: auto;
+  display: flex;
+  flex-direction: column;
 }
-.chest-box h2 { margin-top: 0; font-size: 16px; padding-right: 30px; }
+.chest-box h2 { margin-top: 0; font-size: 16px; padding-right: 30px; flex: 0 0 auto; }
+/* 内容滚动区: 占满头部之外的剩余高度并独立滚动; min-height:0 是让 flex 子元素能正确收缩触发滚动而非被撑高 */
+.chest-box-scroll {
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 #chest-result { margin: 14px 0; font-size: 14px; line-height: 1.6; }
 .rare-item { color: #ff8bd1; font-weight: bold; }
 
 .build-box, .craft-box { width: 320px; text-align: left; }
 .build-box h2, .craft-box h2 { text-align: center; }
-/* 建造/打造面板内容可滚动, 关闭按钮需脱离滚动容器, 固定贴在屏幕右上角 */
-#build-modal .close-btn, #craft-modal .close-btn {
-  position: fixed;
-  top: 84px;
-  right: 14px;
-  z-index: 120;
-}
 .workshop-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

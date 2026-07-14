@@ -101,7 +101,9 @@
     <div class="chest-box build-box">
       <button class="close-btn" id="build-close">✕</button>
       <h2>🔨 建造</h2>
-      <div id="build-grid-list" class="workshop-grid"></div>
+      <div class="chest-box-scroll">
+        <div id="build-grid-list" class="workshop-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -109,7 +111,9 @@
     <div class="chest-box craft-box">
       <button class="close-btn" id="craft-close">✕</button>
       <h2>⚒️ 打造</h2>
-      <div id="craft-list"></div>
+      <div class="chest-box-scroll">
+        <div id="craft-list"></div>
+      </div>
     </div>
   </div>
 
@@ -117,7 +121,9 @@
     <div class="chest-box guide-box">
       <button class="close-btn" id="guide-close">✕</button>
       <h2>📋 任务指引</h2>
-      <div id="guide-content"></div>
+      <div class="chest-box-scroll">
+        <div id="guide-content"></div>
+      </div>
     </div>
   </div>
 
@@ -125,7 +131,9 @@
     <div class="chest-box bag-box">
       <button class="close-btn" id="bag-close">✕</button>
       <h2>🎒 背包</h2>
-      <div id="bag-grid"></div>
+      <div class="chest-box-scroll">
+        <div id="bag-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -133,10 +141,12 @@
     <div class="chest-box bottle-box">
       <button class="close-btn" id="bottle-close">✕</button>
       <h2 id="bottle-title">🍾「漂流瓶」</h2>
-      <div id="bottle-quote" class="bottle-quote"></div>
-      <div id="bottle-instruction" class="bottle-instruction"></div>
-      <div id="bottle-reward" class="bottle-reward"></div>
-      <button id="bottle-claim" class="big-btn">领取奖励</button>
+      <div class="chest-box-scroll">
+        <div id="bottle-quote" class="bottle-quote"></div>
+        <div id="bottle-instruction" class="bottle-instruction"></div>
+        <div id="bottle-reward" class="bottle-reward"></div>
+        <button id="bottle-claim" class="big-btn">领取奖励</button>
+      </div>
     </div>
   </div>
 
@@ -168,7 +178,9 @@
     <div class="chest-box bestiary-box">
       <button class="close-btn" id="bestiary-close">✕</button>
       <h2>📖 钓鱼图鉴</h2>
-      <div id="bestiary-grid"></div>
+      <div class="chest-box-scroll">
+        <div id="bestiary-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -176,7 +188,9 @@
     <div class="chest-box bestiary-box">
       <button class="close-btn" id="blueprint-close">✕</button>
       <h2>📐 图纸收藏</h2>
-      <div id="blueprint-grid"></div>
+      <div class="chest-box-scroll">
+        <div id="blueprint-grid"></div>
+      </div>
     </div>
   </div>
 
@@ -184,16 +198,18 @@
     <div class="chest-box skilltree-box">
       <button class="close-btn" id="skilltree-close">✕</button>
       <h2>🌳 技能树</h2>
-      <div id="skill-points-row">
-        <span id="skill-points-build">🪵 建造点: 0</span>
-        <span id="skill-points-fish">🎣 钓鱼点: 0</span>
+      <div class="chest-box-scroll">
+        <div id="skill-points-row">
+          <span id="skill-points-build">🪵 建造点: 0</span>
+          <span id="skill-points-fish">🎣 钓鱼点: 0</span>
+        </div>
+        <div id="skill-trees">
+          <div class="skill-tree-col" id="skill-tree-build"></div>
+          <div class="skill-tree-divider"></div>
+          <div class="skill-tree-col" id="skill-tree-fish"></div>
+        </div>
+        <div id="skill-detail">点击一个节点查看详情</div>
       </div>
-      <div id="skill-trees">
-        <div class="skill-tree-col" id="skill-tree-build"></div>
-        <div class="skill-tree-divider"></div>
-        <div class="skill-tree-col" id="skill-tree-fish"></div>
-      </div>
-      <div id="skill-detail">点击一个节点查看详情</div>
     </div>
   </div>
 
@@ -201,7 +217,9 @@
     <div class="chest-box bestiary-box">
       <button class="close-btn" id="achievement-close">✕</button>
       <h2>🏆 成就</h2>
-      <div id="achievement-list"></div>
+      <div class="chest-box-scroll">
+        <div id="achievement-list"></div>
+      </div>
     </div>
   </div>
 
@@ -209,21 +227,23 @@
     <div class="chest-box costume-box">
       <button class="close-btn" id="costume-close">✕</button>
       <h2>🪞 奇幻镜·千变万化</h2>
-      <div class="costume-row">
-        <span class="costume-row-label">发色</span>
-        <div id="costume-hair-options" class="costume-opts"></div>
-      </div>
-      <div class="costume-row">
-        <span class="costume-row-label">瞳色</span>
-        <div id="costume-eye-options" class="costume-opts"></div>
-      </div>
-      <div class="costume-row">
-        <span class="costume-row-label">衣服</span>
-        <div id="costume-outfit-options" class="costume-opts"></div>
-      </div>
-      <div class="costume-row">
-        <span class="costume-row-label">配件</span>
-        <div id="costume-accessory-options" class="costume-opts"></div>
+      <div class="chest-box-scroll">
+        <div class="costume-row">
+          <span class="costume-row-label">发色</span>
+          <div id="costume-hair-options" class="costume-opts"></div>
+        </div>
+        <div class="costume-row">
+          <span class="costume-row-label">瞳色</span>
+          <div id="costume-eye-options" class="costume-opts"></div>
+        </div>
+        <div class="costume-row">
+          <span class="costume-row-label">衣服</span>
+          <div id="costume-outfit-options" class="costume-opts"></div>
+        </div>
+        <div class="costume-row">
+          <span class="costume-row-label">配件</span>
+          <div id="costume-accessory-options" class="costume-opts"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -232,11 +252,13 @@
     <div class="chest-box shop-box">
       <button class="close-btn" id="shop-close">✕</button>
       <h2>🏪 商店</h2>
-      <div id="shop-tabs">
-        <button id="shop-tab-sell" class="shop-tab-btn active">出售</button>
-        <button id="shop-tab-buy" class="shop-tab-btn">购买</button>
+      <div class="chest-box-scroll">
+        <div id="shop-tabs">
+          <button id="shop-tab-sell" class="shop-tab-btn active">出售</button>
+          <button id="shop-tab-buy" class="shop-tab-btn">购买</button>
+        </div>
+        <div id="shop-content"></div>
       </div>
-      <div id="shop-content"></div>
     </div>
   </div>
 
