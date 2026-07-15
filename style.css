@@ -135,13 +135,13 @@ html, body {
   gap: 10px;
 }
 
-/* ====== 图标导航栏 (低频功能入口, 固定放在面板最下方) ====== */
-#zone-row { display: flex; gap: 6px; justify-content: space-between; }
+/* ====== 图标导航栏 (低频功能入口, 固定放在面板最下方, 8个按钮排成2行4列) ====== */
+#zone-row { display: flex; flex-direction: column; gap: 6px; }
+.nav-row { display: flex; gap: 6px; justify-content: space-between; }
 .icon-nav-btn {
   flex: 1 1 0;
   min-width: 0;
-  height: 44px;
-  max-width: 44px;
+  height: 48px;
   padding: 2px 0 3px;
   border: 2px solid #2a4a64;
   border-radius: 8px;
@@ -151,13 +151,13 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   overflow: hidden;
 }
 .icon-nav-btn:active { background: #11253a; }
 .icon-nav-btn:disabled { opacity: 0.4; }
-.icon-nav-btn .nav-icon { font-size: 16px; line-height: 1; }
-.icon-nav-btn .nav-label { font-size: 9px; line-height: 1; white-space: nowrap; color: #9fc3d6; }
+.icon-nav-btn .nav-icon { font-size: 18px; line-height: 1; }
+.icon-nav-btn .nav-label { font-size: 9.5px; line-height: 1; white-space: nowrap; color: #9fc3d6; }
 
 #legendary-flash {
   position: fixed; inset: 0;
@@ -297,6 +297,7 @@ html, body {
   min-height: 38px;
 }
 .bait-option.selected { border-color: #ffd86b; color: #ffd86b; }
+.bait-option:disabled { opacity: 0.4; }
 
 .build-collapse-toggle {
   background: #16324a;

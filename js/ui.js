@@ -392,9 +392,11 @@ export function renderBaitDropdown() {
   list.className = "bait-dropdown-list";
   Object.entries(defs).forEach(([key, def]) => {
     const item = document.createElement("button");
+    const outOfStock = def.stock < 1;
     item.className = "bait-option" + (key === selectedBait ? " selected" : "");
     item.textContent = `${def.label}${def.rareX > 1.0 ? ` 稀有×${def.rareX.toFixed(1)}` : ""} 库存${Math.floor(def.stock)}`;
-    item.onclick = () => { selectedBait = key; baitDropdownOpen = false; updateUI(); };
+    item.disabled = outOfStock; // 库存为0的饵料置灰禁用, 抛竿会消耗鱼饵, 不能选一个用不了的
+    item.onclick = () => { if (outOfStock) return; selectedBait = key; baitDropdownOpen = false; updateUI(); };
     list.appendChild(item);
   });
   box.appendChild(list);

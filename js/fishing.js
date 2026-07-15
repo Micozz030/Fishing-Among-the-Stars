@@ -141,9 +141,13 @@ function rollFishTierWithBait(baitKey) {
   return "common";
 }
 
-const BAIT_ICON = { seaweed: "🌿", bread: "🍞", spam: "🥫" };
+const BAIT_LABEL = { seaweed: "水草饵", bread: "面包饵", spam: "午餐肉饵" };
+const CAST_ENERGY_COST = 3;         // 每次抛竿消耗的精力 (与结算时刻脱钩, 抛竿瞬间就扣)
+const CAST_DURATION_MS = Math.round(350 * 1.15); // 抛线动画时长: 原350ms的1.15倍(手感微调, 403ms)
 
 // 入口: 点击「钓鱼」按钮 (idle时起竿, biting时拉线)
+// 消耗规则(明确以此为准): 每次抛竿在起竿瞬间就扣 精力3 + 所选鱼饵×1, 不论后续命中/未命中/小游戏成败,
+// 都不会再重复或额外扣鱼饵——小游戏失败只是"鱼跑了", 因为鱼饵已经在抛竿那一下用掉了。
 export function doFishing(useFoodBait) {
   if (fishingState === "biting") { pullFishingLine(); return; }
   if (fishingState !== "idle") return;
@@ -152,13 +156,18 @@ export function doFishing(useFoodBait) {
 
   let baitKey = "seaweed";
   if (useFoodBait === "bread" || useFoodBait === "spam") baitKey = useFoodBait;
-  if (state.res[baitKey] < 1) { toast(`没有${BAIT_ICON[baitKey]}可以做鱼饵了`); return; }
-  // 注: 鱼饵此处不扣除库存 —— 只有触发稀有/传说小游戏且失败时才会消耗 (见 finalizeMinigameCatch)
+  if (state.res[baitKey] < 1) {
+    toast(`没有${BAIT_LABEL[baitKey]}了,换一种饵料吧`);
+    return;
+  }
+
+  spendEnergy(CAST_ENERGY_COST);
+  state.res[baitKey] -= 1;
 
   fishingBaitKey = baitKey;
   fishingBaitBonus = 0; // 饵料不再影响命中率, 改为影响稀有/传说触发概率
   fishingState = "casting";
-  fishingPhaseDur = 350;
+  fishingPhaseDur = CAST_DURATION_MS;
   fishingPhaseUntil = Date.now() + fishingPhaseDur;
   updateUI();
   save();
@@ -264,7 +273,7 @@ function resolveFishCatch() {
     toast("鱼饵被叼跑了,这次没钓到...");
     checkFishAchievements(null, false);
   }
-  spendEnergy(3);
+  // 精力与鱼饵已经在 doFishing() 抛竿瞬间扣过了, 这里(收线结算)不再重复扣
   fishingState = "idle";
   fishingBaitKey = null;
   fishingBiteTier = null;
@@ -529,14 +538,12 @@ function finalizeMinigameCatch(success) {
     checkFishAchievements(speciesKey, true);
     showShareButton(speciesKey, length, tier);
   } else {
-    const baitKey = fishingBaitKey;
-    let consumed = false;
-    if (baitKey && state.res[baitKey] >= 1) { state.res[baitKey] -= 1; consumed = true; }
-    toast(consumed ? "鱼跑掉了!消耗了鱼饵×1" : "鱼跑掉了!");
+    // 鱼饵已经在抛竿瞬间扣过了, 小游戏失败不再额外扣一次 —— 只是单纯的"鱼跑了"
+    toast(tier === "legendary" ? "传说鱼挣脱鱼钩,跑掉了!" : "稀有鱼挣脱鱼钩,跑掉了!");
     checkFishAchievements(null, false);
   }
 
-  spendEnergy(3);
+  // 精力与鱼饵已经在 doFishing() 抛竿瞬间扣过了, 这里(小游戏结算)不再重复扣
   fishingState = "idle";
   fishingBaitKey = null;
   fishingBiteTier = null;

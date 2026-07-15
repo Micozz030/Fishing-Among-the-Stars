@@ -18,6 +18,10 @@ import {
   minigame, updateMinigame, drawMinigame, biteAlertStartAt, drawBiteAlert,
 } from "./fishing.js";
 import { updateBottleDrift, drawDriftBottle } from "./systems.js";
+// renderFishRow 必须在 drawScene 里每帧调用一次(而不是靠事件驱动的 updateUI 稀疏调用),
+// 否则钓鱼进度条(#fish-progress-fill)只能在阶段切换的瞬间跳变, 观感卡顿。
+// ui.js 不会反过来 import render.js, 所以这个单向依赖不会形成循环。
+import { renderFishRow } from "./ui.js";
 
 let waveOffset = 0;
 const PX = 4; // 基础像素单元
@@ -742,6 +746,7 @@ export function drawScene() {
   if (onboardingStep === "character") { drawCharacterSelectScreen(); return; }
   if (onboardingStep === "pet") { drawPetSelectScreen(); return; }
 
+  if (fishingState !== "idle") renderFishRow();
   updateBottleDrift();
 
   ctx.clearRect(0, 0, 360, 420);
