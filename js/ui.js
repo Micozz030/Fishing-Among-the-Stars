@@ -33,7 +33,6 @@ import {
   fishingState, fishingPhaseUntil, fishingPhaseDur, fishingBiteTier, rodChance, displayChancePct,
 } from "./fishing.js";
 import { ACHIEVEMENTS, ACHV_CATEGORY_LABEL } from "./systems.js";
-import { sfx } from "./audio.js";
 
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
 export let selectedBait = "seaweed";       // 当前选中的鱼饵 (下拉选择, 默认水草)
@@ -877,7 +876,6 @@ export function openPanel(name) {
   const alreadyOpen = !el.classList.contains("hidden");
   closeAllPanels();
   if (alreadyOpen) return; // 再点一次同一个按钮 = 关闭(toggle)
-  sfx.uiClick();
   if (def.render) def.render();
   el.classList.remove("hidden");
 }
