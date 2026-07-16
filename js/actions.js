@@ -17,20 +17,23 @@ import {
 import { updateUI, setWorkshopFeedback, openBuffModal, renderSkillTree, BAG_ITEMS } from "./ui.js";
 import { rodChance, displayChancePct, rodUpgradeCost } from "./fishing.js";
 import { checkBuildAchievements, unlockAchievement, isModalOpen } from "./systems.js";
+import { sfx } from "./audio.js";
 
 // ====== 图纸 / 木筏部件 ======
 export function tryBuildPart(key) {
   const part = RAFT_PARTS.find(p => p.key === key);
   if (!part || state.raftParts[key]) return;
-  if (!ownsBlueprint(part.bp)) { toast("没有对应的图纸,无法建造"); return; }
-  if (state.energy <= 0) { toast("精力不足,歇一会再建造吧"); setWorkshopFeedback("part_" + key, false); return; }
+  if (!ownsBlueprint(part.bp)) { sfx.error(); toast("没有对应的图纸,无法建造"); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再建造吧"); setWorkshopFeedback("part_" + key, false); return; }
   if (!canAfford(part.cost)) {
+    sfx.error();
     toast("材料不够");
     state.stats.buildFailCount += 1;
     checkBuildAchievements();
     setWorkshopFeedback("part_" + key, false);
     return;
   }
+  sfx.build();
   payCost(part.cost);
   state.raftParts[key] = true;
   state.raftStats.speed += part.stats.speed;
@@ -46,9 +49,10 @@ export function tryBuildPart(key) {
 // ====== 木筏面积/扩建 ======
 export function doExpandRaft() {
   const zone = state.zone;
-  if (!canExpandZone(zone)) { toast("木筏面积已达上限"); return; }
-  if (state.energy <= 0) { toast("精力不足,歇一会再扩建吧"); setWorkshopFeedback("expand", false); return; }
-  if (!canAfford(CONFIG.EXPAND_COST)) { toast("材料不够"); setWorkshopFeedback("expand", false); return; }
+  if (!canExpandZone(zone)) { sfx.error(); toast("木筏面积已达上限"); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再扩建吧"); setWorkshopFeedback("expand", false); return; }
+  if (!canAfford(CONFIG.EXPAND_COST)) { sfx.error(); toast("材料不够"); setWorkshopFeedback("expand", false); return; }
+  sfx.build();
   payCost(CONFIG.EXPAND_COST);
   const cfg = zoneSlotConfig(zone);
   state.raftSlots = Math.min(cfg.max, state.raftSlots + cfg.step);
@@ -66,9 +70,10 @@ export function craftMaxAffordable(cost) {
 }
 
 export function doCraftBatch(feedbackKey, cost, yieldObj, n, energyEach, label) {
-  if (state.energy <= 0) { toast("精力不足,歇一会再打造吧"); setWorkshopFeedback(feedbackKey, false); return 0; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再打造吧"); setWorkshopFeedback(feedbackKey, false); return 0; }
   const times = Math.min(n, craftMaxAffordable(cost));
-  if (times < 1) { toast("材料不够"); setWorkshopFeedback(feedbackKey, false); return 0; }
+  if (times < 1) { sfx.error(); toast("材料不够"); setWorkshopFeedback(feedbackKey, false); return 0; }
+  sfx.craft();
   for (let i = 0; i < times; i++) { payCost(cost); addRes(yieldObj); }
   spendEnergy(energyEach * times);
   const totalYield = {};
@@ -125,7 +130,7 @@ export function wirePetAnimation(setPetActionFn) { _setPetAction = setPetActionF
 
 export function doFeedPet() {
   if (!state.pet) return;
-  if (state.res.jerky < 1) { toast("没有鱼干可以喂了,先去晒鱼架做一些"); return; }
+  if (state.res.jerky < 1) { sfx.error(); toast("没有鱼干可以喂了,先去晒鱼架做一些"); return; }
   state.res.jerky -= 1;
   state.pet.satiety = Math.min(100, state.pet.satiety + CONFIG.PET_FEED_RESTORE);
 
@@ -154,7 +159,7 @@ export function doPetInteract() {
 
 // ====== 手动打捞 (拉钩, 消耗精力2) ======
 export function doFishLoot() {
-  if (state.energy <= 0) { toast("精力不足,歇一会再打捞吧"); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再打捞吧"); return; }
   const eff = efficiency();
   const now = Date.now();
   const eventEff = now < state.tempEffModExpire ? state.tempEffMod : 0;
@@ -203,6 +208,7 @@ export function doFishLoot() {
 import { spawnFloatingText as _spawnFloatingText } from "./state.js";
 
 export function openChest() {
+  sfx.chestOpen();
   let isRare = Math.random() < ANACHRONISM_CHANCE;
   let result = isRare ? pick(ANACHRONISMS) : pick(CHEST_LOOT);
   addRes(result.res);
@@ -242,9 +248,9 @@ export function doDrink() {
 // ====== 鱼竿升级 ======
 export function doUpgradeRod() {
   if (state.rodLevel >= 6) return;
-  if (state.energy <= 0) { toast("精力不足,歇一会再升级吧"); setWorkshopFeedback("rod_upgrade", false); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再升级吧"); setWorkshopFeedback("rod_upgrade", false); return; }
   const cost = rodUpgradeCost();
-  if (!canAfford(cost)) { toast("升级材料不够"); setWorkshopFeedback("rod_upgrade", false); return; }
+  if (!canAfford(cost)) { sfx.error(); toast("升级材料不够"); setWorkshopFeedback("rod_upgrade", false); return; }
   payCost(cost);
   state.rodLevel += 1;
   spendEnergy(4);
@@ -255,7 +261,7 @@ export function doUpgradeRod() {
 
 // ====== 椰子处理: 生吃(+8精力) / 锤子敲开(产出椰子肉×1+椰子汁×1) ======
 export function doEatCoconutRaw() {
-  if (state.res.coconut < 1) { toast("没有椰子了"); setWorkshopFeedback("coconut_raw", false); return; }
+  if (state.res.coconut < 1) { sfx.error(); toast("没有椰子了"); setWorkshopFeedback("coconut_raw", false); return; }
   state.res.coconut -= 1;
   restoreEnergy(CONFIG.COCONUT_RAW_RESTORE);
   toast(`生吃了一个椰子,精力+${CONFIG.COCONUT_RAW_RESTORE} 🥥`);
@@ -265,7 +271,7 @@ export function doEatCoconutRaw() {
 
 export function doOpenCoconut() {
   if (!state.builds.hammer) return;
-  if (state.res.coconut < 1) { toast("没有椰子可以敲"); setWorkshopFeedback("coconut_hammer", false); return; }
+  if (state.res.coconut < 1) { sfx.error(); toast("没有椰子可以敲"); setWorkshopFeedback("coconut_hammer", false); return; }
   state.res.coconut -= 1;
   state.res.coconut_meat = (state.res.coconut_meat || 0) + 1;
   state.res.coconut_juice = (state.res.coconut_juice || 0) + 1;
@@ -275,7 +281,7 @@ export function doOpenCoconut() {
 }
 
 export function doEatCoconutMeat() {
-  if ((state.res.coconut_meat || 0) < 1) { toast("没有椰子肉了"); return; }
+  if ((state.res.coconut_meat || 0) < 1) { sfx.error(); toast("没有椰子肉了"); return; }
   state.res.coconut_meat -= 1;
   restoreEnergy(FOOD_DEFS.coconut_meat.restore);
   toast(`吃了椰子肉,精力+${FOOD_DEFS.coconut_meat.restore} 🍖`);
@@ -284,7 +290,7 @@ export function doEatCoconutMeat() {
 }
 
 export function doEatCoconutJuice() {
-  if ((state.res.coconut_juice || 0) < 1) { toast("没有椰子汁了"); return; }
+  if ((state.res.coconut_juice || 0) < 1) { sfx.error(); toast("没有椰子汁了"); return; }
   state.res.coconut_juice -= 1;
   restoreEnergy(FOOD_DEFS.coconut_juice.restore);
   toast(`喝了椰子汁,精力+${FOOD_DEFS.coconut_juice.restore} 🥤`);
@@ -301,8 +307,8 @@ function rummageSuccessChance() {
 }
 
 export function doRummage() {
-  if (state.res.trash < 1) { toast("没有垃圾可以翻了,先去拉钩打捞几个垃圾回来"); return; }
-  if (state.energy <= 0) { toast("精力不足,歇一会再翻吧"); return; }
+  if (state.res.trash < 1) { sfx.error(); toast("没有垃圾可以翻了,先去拉钩打捞几个垃圾回来"); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再翻吧"); return; }
   state.res.trash -= 1;
 
   const eff = efficiency();
@@ -340,14 +346,16 @@ export function doRummage() {
 export function tryBuild(key) {
   const def = BUILDS.find(b => b.key === key);
   if (!def || state.builds[key]) return;
-  if (state.energy <= 0) { toast("精力不足,歇一会再建造吧"); setWorkshopFeedback("build_" + key, false); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再建造吧"); setWorkshopFeedback("build_" + key, false); return; }
   if (!canAfford(def.cost)) {
+    sfx.error();
     toast("材料不够");
     state.stats.buildFailCount += 1;
     checkBuildAchievements();
     setWorkshopFeedback("build_" + key, false);
     return;
   }
+  sfx.build();
   payCost(def.cost);
   state.builds[key] = true;
   spendEnergy(4);
@@ -378,7 +386,7 @@ export function doZoneSwitch() {
     return;
   }
   if (state.zone === "stream") {
-    if (state.era !== "iron") { toast("需要先跃升到铁器时代(造出自动收集网)才能前往河流"); return; }
+    if (state.era !== "iron") { sfx.error(); toast("需要先跃升到铁器时代(造出自动收集网)才能前往河流"); return; }
     state.zone = "river";
     state.everVisitedRiver = true;
     state.castStreak = 0;
@@ -405,7 +413,7 @@ export function doZoneSwitch() {
 // ====== 商店系统 ======
 export function doSellFish(amount) {
   const n = Math.min(amount, Math.floor(state.res.fish));
-  if (n < 1) { toast("没有鱼可以出售"); return; }
+  if (n < 1) { sfx.error(); toast("没有鱼可以出售"); return; }
   state.res.fish -= n;
   state.gold += n * FISH_SELL_PRICE;
   toast(`出售了 🐟${n}条,获得 🪙${n * FISH_SELL_PRICE}`);
@@ -416,7 +424,7 @@ export function doSellFish(amount) {
 export function doBuyItem(id) {
   const item = SHOP_ITEMS.find(i => i.id === id);
   if (!item || state.shopOwned.includes(id)) return;
-  if (state.gold < item.price) { toast("金币不够"); return; }
+  if (state.gold < item.price) { sfx.error(); toast("金币不够"); return; }
   state.gold -= item.price;
   state.shopOwned.push(id);
   toast(`🛍️ 购买了 ${item.icon}${item.name}!`);

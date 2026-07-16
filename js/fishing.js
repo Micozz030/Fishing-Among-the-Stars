@@ -18,6 +18,7 @@ import {
 } from "./state.js";
 import { checkFishAchievements } from "./systems.js";
 import { updateUI } from "./ui.js";
+import { sfx } from "./audio.js";
 
 // ====== 钓鱼动画状态机 ======
 // 普通鱼: idle -> casting(抛线0.5s) -> waiting(等待咬钩1.5~3s) -> biting(咬钩窗口0.8s) -> pulling(拉线0.5s) -> idle
@@ -152,15 +153,17 @@ export function doFishing(useFoodBait) {
   if (fishingState === "biting") { pullFishingLine(); return; }
   if (fishingState !== "idle") return;
   if (!state.builds.rod) return;
-  if (state.energy <= 0) { toast("精力不足,歇一会再钓吧"); return; }
+  if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再钓吧"); return; }
 
   let baitKey = "seaweed";
   if (useFoodBait === "bread" || useFoodBait === "spam") baitKey = useFoodBait;
   if (state.res[baitKey] < 1) {
+    sfx.error();
     toast(`没有${BAIT_LABEL[baitKey]}了,换一种饵料吧`);
     return;
   }
 
+  sfx.cast();
   spendEnergy(CAST_ENERGY_COST);
   state.res[baitKey] -= 1;
 
@@ -203,6 +206,7 @@ function enterFishBitePhase() {
 // 此阶段还没有创建小游戏的全屏输入捕获层(见 ensureMinigameOverlay 在 startMinigame 里才调用),
 // 所以这段时间的点击不会被误判为小游戏操作, 天然满足"预警期间不接受点击"的要求。
 function startBiteAlert(tier) {
+  sfx.biteAlert();
   fishingState = "bitealert";
   biteAlertStartAt = Date.now();
   fishingPhaseDur = MINIGAME_CONFIG.biteAlertDurationMs;
@@ -214,6 +218,7 @@ function startBiteAlert(tier) {
 }
 
 function missFishBite() {
+  sfx.escape();
   fishingState = "idle";
   toast(pick(FISH_ESCAPE_JOKES));
   fishingBiteTier = null;
@@ -241,6 +246,7 @@ function resolveFishCatch() {
   const precisionActive = state.currentBuff === "precision" && state.zone === "river";
 
   if (hit) {
+    sfx.commonCatch();
     state.castStreak += 1;
 
     const speciesKey = rollFishSpecies("common");
@@ -269,6 +275,7 @@ function resolveFishCatch() {
       toast(`精准直觉发动!额外获得 ${FISH[bonusKey].icon}${FISH[bonusKey].name} (${bonusLen.toFixed(1)}cm)!`);
     }
   } else {
+    sfx.escape();
     state.castStreak = 0;
     toast("鱼饵被叼跑了,这次没钓到...");
     checkFishAchievements(null, false);
@@ -380,6 +387,7 @@ function onMinigameTap() {
   minigame.attemptsUsed += 1;
 
   if (inZone) {
+    sfx.hookHit();
     minigame.hooksDone += 1;
     minigame.tapFlash = { type: "hit", until: now + MINIGAME_CONFIG.tapFlashDurationMs };
     if (minigame.hooksDone >= minigame.hooksNeeded) {
@@ -392,6 +400,7 @@ function onMinigameTap() {
       toast("钩住了!再来一次!");
     }
   } else {
+    sfx.hookMiss();
     minigame.tapFlash = { type: "miss", until: now + MINIGAME_CONFIG.tapFlashDurationMs };
     minigame.fishStartledUntil = now + MINIGAME_CONFIG.fishStartledDurationMs;
     if (minigame.attemptsUsed >= minigame.attemptsAllowed) {
@@ -529,6 +538,7 @@ function finalizeMinigameCatch(success) {
   const tier = minigame ? minigame.tier : fishingBiteTier;
 
   if (success) {
+    if (tier === "legendary") sfx.legendaryCatch(); else sfx.rareCatch();
     const speciesKey = rollFishSpecies(tier);
     const length = rollFishLength(speciesKey);
     registerCatch(speciesKey, false, length);
@@ -538,6 +548,7 @@ function finalizeMinigameCatch(success) {
     checkFishAchievements(speciesKey, true);
     showShareButton(speciesKey, length, tier);
   } else {
+    sfx.escape();
     // 鱼饵已经在抛竿瞬间扣过了, 小游戏失败不再额外扣一次 —— 只是单纯的"鱼跑了"
     toast(tier === "legendary" ? "传说鱼挣脱鱼钩,跑掉了!" : "稀有鱼挣脱鱼钩,跑掉了!");
     checkFishAchievements(null, false);

@@ -98,6 +98,9 @@ export const state = {
   pet: null, // { type, satiety, lastFeedDate, feedStreakDays }
   petDecayAccum: 0,
   petGiftAccum: 0,
+
+  // ---- 设置 (音效等, 不属于游戏进度但一并存档持久化) ----
+  settings: { muted: false },
 };
 
 // 供 load()/migrate() 内部复用的"资源默认形状", 也用于给全新存档发放初始礼包
@@ -176,6 +179,8 @@ export function migrate(data, validPetTypes) {
   state.bottlesSeen = data.bottlesSeen || [];
   state.everVisitedRiver = !!data.everVisitedRiver;
 
+  state.settings = Object.assign({ muted: false }, data.settings);
+
   state.version = SAVE_VERSION;
 }
 
@@ -234,6 +239,12 @@ export function save() {
   }
 }
 
+// 立即强制落盘 (跳过节流), 供存档导出等需要拿到"当前最新状态"的场景使用。
+export function saveNow() {
+  saveDirty = true;
+  flushSave();
+}
+
 // 页面切走/关闭前强制把未落盘的最新状态写入, 避免节流窗口内丢数据
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
@@ -242,6 +253,59 @@ if (typeof document !== "undefined") {
 }
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", flushSave);
+}
+
+// ====== 存档导出/导入 (文本形式, 供玩家手动备份/跨设备转移) ======
+// 格式: "RAFTSAVE.v{存档版本号}." + Base64(JSON字符串), 前缀用于识别/校验格式。
+const SAVE_EXPORT_PREFIX = "RAFTSAVE.v";
+
+export function exportSaveString() {
+  saveNow(); // 确保导出的是最新状态(跳过节流窗口)
+  const json = JSON.stringify(state);
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return `${SAVE_EXPORT_PREFIX}${state.version}.${b64}`;
+}
+
+// 导入存档字符串。校验通过则直接覆盖当前 state 并落盘, 调用方负责在此之后 reload 页面。
+// 返回 true = 导入成功, false = 格式不正确/解析失败(不改变任何数据)。
+// validPetTypes: 合法宠物种类表(见 migrate() 说明), 由调用方从 data.js 传入。
+export function importSaveString(str, validPetTypes) {
+  if (typeof str !== "string") return false;
+  const trimmed = str.trim();
+  const m = trimmed.match(/^RAFTSAVE\.v(\d+)\.([\s\S]+)$/);
+  if (!m) return false;
+
+  let data;
+  try {
+    const json = decodeURIComponent(escape(atob(m[2])));
+    data = JSON.parse(json);
+  } catch (e) {
+    return false;
+  }
+  if (!data || typeof data !== "object" || (data.version === undefined && data.res === undefined)) {
+    return false;
+  }
+
+  // 导入将覆盖当前进度: 先备份当前存档, 再应用
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (raw) localStorage.setItem(SAVE_KEY + "_pre_import", raw);
+  } catch (e) { /* 备份失败不阻塞导入 */ }
+
+  try {
+    migrate(data, validPetTypes); // 复用现有迁移逻辑, 把任意版本的导入数据升级为当前形状
+  } catch (e) {
+    console.warn("导入存档迁移失败", e);
+    return false;
+  }
+
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.warn("导入存档写入失败", e);
+    return false;
+  }
+  return true;
 }
 
 // ====== 精力值系统 ======

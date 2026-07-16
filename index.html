@@ -98,6 +98,10 @@
         <button id="btn-shop" class="icon-nav-btn" title="商店"><span class="nav-icon">🏪</span><span class="nav-label">商店</span></button>
         <button id="btn-zone-switch" class="icon-nav-btn" title="前往河流"><span class="nav-icon">⛵</span><span class="nav-label">换区</span></button>
       </div>
+      <div class="nav-row">
+        <button id="btn-save-io" class="icon-nav-btn" title="存档管理"><span class="nav-icon">💾</span><span class="nav-label">存档</span></button>
+        <button id="btn-mute" class="icon-nav-btn" title="音效开关"><span class="nav-icon" id="mute-icon">🔊</span><span class="nav-label">音效</span></button>
+      </div>
     </div>
   </div>
 
@@ -248,6 +252,43 @@
           <span class="costume-row-label">配件</span>
           <div id="costume-accessory-options" class="costume-opts"></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="save-io-modal" class="hidden">
+    <div class="chest-box save-io-box">
+      <button class="close-btn" id="save-io-close">✕</button>
+      <h2>💾 存档管理</h2>
+      <div class="chest-box-scroll">
+        <div class="save-io-section">
+          <h3>导出存档</h3>
+          <p class="save-io-hint">将当前进度导出为一段文字, 可复制保存到备忘录等安全的地方, 也可下载为文件。</p>
+          <div class="save-io-btn-row">
+            <button id="save-export-btn" class="big-btn">📤 导出存档</button>
+            <button id="save-download-btn" class="big-btn secondary">⬇️ 下载为文件</button>
+          </div>
+          <textarea id="save-export-output" class="save-io-textarea" readonly placeholder="点击「导出存档」生成"></textarea>
+        </div>
+        <div class="save-io-section">
+          <h3>导入存档</h3>
+          <p class="save-io-hint">粘贴之前导出的存档文字, 或选择存档文件。导入将覆盖当前进度, 请谨慎操作。</p>
+          <textarea id="save-import-input" class="save-io-textarea" placeholder="粘贴存档文字到这里"></textarea>
+          <div class="save-io-btn-row">
+            <input type="file" id="save-import-file" accept=".txt" class="save-io-file-input">
+            <button id="save-import-btn" class="big-btn">📥 导入存档</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="save-import-confirm-modal" class="hidden">
+    <div class="chest-box reset-confirm-box">
+      <p id="save-import-confirm-msg">导入将覆盖当前进度, 确定吗?</p>
+      <div class="reset-confirm-btns">
+        <button id="save-import-confirm" class="big-btn reset-danger-btn">确认</button>
+        <button id="save-import-cancel" class="big-btn secondary">取消</button>
       </div>
     </div>
   </div>

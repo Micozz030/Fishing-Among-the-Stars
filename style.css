@@ -385,7 +385,7 @@ html, body {
    固定定位, 锚定右上角, 不随页面滚动, 不阻断游戏其余区域的操作 ====== */
 #bestiary-modal, #blueprint-modal, #skilltree-modal,
 #achievement-modal, #costume-modal, #shop-modal, #bottle-modal,
-#build-modal, #craft-modal, #guide-modal, #bag-modal {
+#build-modal, #craft-modal, #guide-modal, #bag-modal, #save-io-modal {
   position: fixed; inset: 0;
   background: transparent;
   pointer-events: none;
@@ -393,7 +393,7 @@ html, body {
 }
 #bestiary-modal.hidden, #blueprint-modal.hidden, #skilltree-modal.hidden,
 #achievement-modal.hidden, #costume-modal.hidden, #shop-modal.hidden, #bottle-modal.hidden,
-#build-modal.hidden, #craft-modal.hidden, #guide-modal.hidden, #bag-modal.hidden { display: none; }
+#build-modal.hidden, #craft-modal.hidden, #guide-modal.hidden, #bag-modal.hidden, #save-io-modal.hidden { display: none; }
 
 .chest-box {
   position: relative;
@@ -408,7 +408,8 @@ html, body {
    容器内部拆成"不滚动的头部(标题+关闭按钮)" + ".chest-box-scroll 独立滚动的内容区", 关闭按钮因此永远可见可点 */
 #bestiary-modal .chest-box, #blueprint-modal .chest-box, #skilltree-modal .chest-box,
 #achievement-modal .chest-box, #costume-modal .chest-box, #shop-modal .chest-box, #bottle-modal .chest-box,
-#build-modal .chest-box, #craft-modal .chest-box, #guide-modal .chest-box, #bag-modal .chest-box {
+#build-modal .chest-box, #craft-modal .chest-box, #guide-modal .chest-box, #bag-modal .chest-box,
+#save-io-modal .chest-box {
   position: fixed;
   top: 78px;
   right: 8px;
@@ -876,6 +877,47 @@ html, body {
   display: flex;
   gap: 10px;
   justify-content: center;
+}
+
+/* ====== 存档导入二次确认弹窗 (复用重置确认弹窗的全屏遮罩样式) ====== */
+#save-import-confirm-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+#save-import-confirm-modal.hidden { display: none; }
+
+/* ====== 存档管理面板 ====== */
+.save-io-box { width: 300px; text-align: left; }
+.save-io-box h2 { text-align: center; }
+.save-io-section { margin-bottom: 16px; }
+.save-io-section h3 { font-size: 13px; margin: 0 0 6px; color: #ffd86b; }
+.save-io-hint { font-size: 11.5px; line-height: 1.5; color: #9fc3d6; margin: 0 0 8px; }
+.save-io-btn-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.save-io-btn-row .big-btn { flex: 1 1 auto; font-size: 12.5px; padding: 8px 6px; }
+.save-io-textarea {
+  width: 100%;
+  min-height: 70px;
+  box-sizing: border-box;
+  resize: vertical;
+  background: #0e2233;
+  color: #cfe8f0;
+  border: 1px solid #2a4a64;
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 11px;
+  font-family: inherit;
+  word-break: break-all;
+}
+.save-io-file-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: #9fc3d6;
 }
 .reset-danger-btn {
   background: #7a1a1a !important;

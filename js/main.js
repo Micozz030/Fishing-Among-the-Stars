@@ -3,7 +3,10 @@
 
 import { GAME_STORAGE_KEYS } from "./config.js";
 import { PET_TYPES } from "./data.js";
-import { state, load, loadCostume, canvas, zoneTotalSlots } from "./state.js";
+import {
+  state, load, loadCostume, canvas, zoneTotalSlots,
+  exportSaveString, importSaveString, toast,
+} from "./state.js";
 import {
   doFishLoot, doRummage, doZoneSwitch, doPetInteract, wirePetAnimation,
 } from "./actions.js";
@@ -17,12 +20,14 @@ import {
   drawScene, setRaftDisplayedSlots, setPetAction, startOnboardingIfNeeded,
   handleOnboardingClick, onboardingStep, isPetHit,
 } from "./render.js";
+import { initAudioOnGesture, isMuted, toggleMute } from "./audio.js";
 
 // ====== 初始化 ======
 load(PET_TYPES);
 auditBagItemCoverage();
 loadCostume();
 wirePetAnimation(setPetAction);
+initAudioOnGesture();
 
 document.getElementById("btn-fish-loot").onclick = doFishLoot;
 document.getElementById("btn-rummage").onclick = doRummage;
@@ -61,6 +66,82 @@ document.getElementById("build-close").onclick = () => document.getElementById("
 
 document.getElementById("btn-craft").onclick = () => openPanel("craft");
 document.getElementById("craft-close").onclick = () => document.getElementById("craft-modal").classList.add("hidden");
+
+document.getElementById("btn-save-io").onclick = () => openPanel("saveio");
+document.getElementById("save-io-close").onclick = () => document.getElementById("save-io-modal").classList.add("hidden");
+
+// ====== 音效静音开关 ======
+function refreshMuteIcon() {
+  document.getElementById("mute-icon").textContent = isMuted() ? "🔇" : "🔊";
+}
+document.getElementById("btn-mute").onclick = () => {
+  toggleMute();
+  refreshMuteIcon();
+};
+refreshMuteIcon();
+
+// ====== 存档管理: 导出 (复制到剪贴板 + 下载文件) / 导入 (粘贴文字 + 选择文件, 二次确认后覆盖并刷新) ======
+document.getElementById("save-export-btn").onclick = async () => {
+  const str = exportSaveString();
+  const output = document.getElementById("save-export-output");
+  output.value = str;
+  try {
+    await navigator.clipboard.writeText(str);
+    toast("存档已复制,请粘贴保存到备忘录等安全的地方");
+  } catch (e) {
+    // 剪贴板API不可用时退化为可选中的文本框, 玩家手动全选复制
+    output.select();
+    toast("已生成存档文字,请手动复制保存");
+  }
+};
+
+document.getElementById("save-download-btn").onclick = () => {
+  const str = exportSaveString();
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([str], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `raft_save_${dateStr}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+document.getElementById("save-import-file").addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById("save-import-input").value = String(reader.result || "");
+  };
+  reader.readAsText(file);
+});
+
+let pendingImportString = null;
+document.getElementById("save-import-btn").onclick = () => {
+  const str = document.getElementById("save-import-input").value;
+  if (!str || !str.trim()) { toast("请先粘贴存档文字或选择存档文件"); return; }
+  pendingImportString = str;
+  document.getElementById("save-import-confirm-modal").classList.remove("hidden");
+};
+document.getElementById("save-import-cancel").onclick = () => {
+  pendingImportString = null;
+  document.getElementById("save-import-confirm-modal").classList.add("hidden");
+};
+document.getElementById("save-import-confirm").onclick = () => {
+  const str = pendingImportString;
+  pendingImportString = null;
+  document.getElementById("save-import-confirm-modal").classList.add("hidden");
+  if (!str) return;
+  const ok = importSaveString(str, PET_TYPES);
+  if (!ok) {
+    toast("存档格式不正确");
+    return;
+  }
+  location.reload();
+};
 
 document.getElementById("event-close").onclick = () => {
   document.getElementById("event-modal").classList.add("hidden");

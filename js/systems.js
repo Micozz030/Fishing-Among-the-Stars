@@ -17,6 +17,7 @@ import {
 } from "./state.js";
 import { updateUI } from "./ui.js";
 import { registerCatch } from "./fishing.js";
+import { sfx } from "./audio.js";
 
 // ====== 自动收集网专用掉落表: 在基础打捞表之上额外加入"普通鱼", 权重为其他条目的1.5倍 ======
 function autoCollectorLootTable() {
@@ -292,6 +293,7 @@ export function openBottleModal() {
   if (!activeBottle) return;
   const def = BOTTLE_DEFS.find(d => d.id === activeBottle.id);
   if (!def) return;
+  sfx.chestOpen();
   document.getElementById("bottle-title").textContent = `🍾「${def.title}」`;
   document.getElementById("bottle-quote").textContent = def.quote;
   document.getElementById("bottle-instruction").textContent = `👉 ${def.instruction}`;
@@ -371,6 +373,7 @@ export function unlockAchievement(id) {
   if (state.achievements[id]) return;
   const def = ACHIEVEMENTS.find(a => a.id === id);
   if (!def) return;
+  sfx.achievement();
   state.achievements[id] = { unlocked: true, unlockedAt: Date.now() };
   if (def.cat === "fish") state.skillPoints.fish += 1;
   if (def.cat === "build") state.skillPoints.build += 1;
