@@ -50,6 +50,15 @@
     <div id="intro-scene-tint" class="intro-tint-dim"></div>
     <div id="intro-white-flash"></div>
     <button id="intro-skip-btn">跳过 ▸</button>
+    <!-- 老板来电横幅 (仅剧情phase1"手机沉湖"那段短暂出现, 纯装饰, 按钮不可点) -->
+    <div id="intro-call-banner" class="hidden">
+      <span class="intro-call-icon">📞</span>
+      <span class="intro-call-text">老板(急) 来电…</span>
+      <span class="intro-call-btn accept">✓</span>
+      <span class="intro-call-btn decline">✕</span>
+    </div>
+    <!-- 消息刷屏气泡: 从顶部往下堆叠, 同样只在phase1的"消息轰炸"几句里出现 -->
+    <div id="intro-chat-stack"></div>
     <div id="intro-dialogue-box">
       <div id="intro-avatar" class="intro-avatar hidden"></div>
       <div id="intro-text-col">

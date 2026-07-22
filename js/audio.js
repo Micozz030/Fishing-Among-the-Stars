@@ -25,6 +25,7 @@ const VOL = {
   chestOpen: 0.28,
   error: 0.18,
   achievement: 0.28,
+  vibrate: 0.08, // 开场剧情"手机震动"专用, 音量刻意压得很低
 };
 
 const NOTE = {
@@ -132,6 +133,35 @@ function noiseBurst(delay, dur, vol) {
   } catch (e) { /* 静默失败 */ }
 }
 
+// vibrateBuzz: 低沉手机震动感, 120Hz sine + 手写的快速增益颤音(每40ms起伏一次), 全程约0.3s,
+// 音量刻意压得很低。不用额外LFO振荡器, 直接在gain上排一串短促ramp, 和其它音效保持同样朴素的实现风格。
+function vibrateBuzz(delay, dur, vol) {
+  if (isMuted()) return;
+  const c = ensureContext();
+  if (!c) return;
+  try {
+    const t0 = c.currentTime + Math.max(0, delay);
+    const osc = c.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(120, t0);
+    const gain = c.createGain();
+    gain.gain.setValueAtTime(0, t0);
+    const step = 0.04; // 颤音周期(s), 制造"嗡嗡"的断续感
+    let t = t0;
+    while (t < t0 + dur) {
+      gain.gain.linearRampToValueAtTime(vol, t + step * 0.3);
+      gain.gain.linearRampToValueAtTime(vol * 0.25, t + step);
+      t += step;
+    }
+    const releaseEnd = t0 + dur + RELEASE_TAIL_S;
+    gain.gain.linearRampToValueAtTime(0.001, releaseEnd);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    osc.start(t0);
+    osc.stop(releaseEnd + 0.02);
+  } catch (e) { /* 静默失败 */ }
+}
+
 // ====== 音效集合 ======
 export const sfx = {
   // 抛竿: 下滑的sine呼啸声(起始频率降低) + 更轻的噪声水花, 约0.3s
@@ -205,5 +235,12 @@ export const sfx = {
   achievement() {
     tone(NOTE.G5, 0, 0.14, "sine", VOL.achievement);
     tone(NOTE.C6, 0.1, 0.24, "sine", VOL.achievement);
+  },
+  // 开场剧情专用: 手机震动感(仅phase1"职场追杀"那几句配合屏幕抖动使用) + 真机haptics(能力检测, 不支持时静默跳过)
+  vibrate() {
+    vibrateBuzz(0, 0.3, VOL.vibrate);
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      try { navigator.vibrate([120, 80, 120]); } catch (e) { /* 部分环境策略限制会抛错, 静默忽略 */ }
+    }
   },
 };

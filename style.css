@@ -942,6 +942,18 @@ html, body {
 }
 #intro-overlay.hidden { display: none; }
 
+/* 手机震动屏幕抖动: 高频±3px水平位移, 单次约0.4s。三种用法—— 固定1次/固定2次/持续到打字结束(见js/intro.js) */
+@keyframes introShakeBuzz {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-3px); }
+  40% { transform: translateX(3px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+#intro-overlay.intro-shake-1 { animation: introShakeBuzz 0.4s ease-in-out 1; }
+#intro-overlay.intro-shake-2 { animation: introShakeBuzz 0.4s ease-in-out 2; }
+#intro-overlay.intro-shake-continuous { animation: introShakeBuzz 0.4s linear infinite; }
+
 /* 场景遮罩: phase1(湖边)用近乎不透明的深色完全遮住木筏画面(没有湖边美术, 干脆藏起来);
    phase2(木排上)转为半透明, 让游戏画布在对话框后方若隐若现地露出来 */
 #intro-scene-tint {
@@ -984,6 +996,73 @@ html, body {
 }
 #intro-skip-btn:active { background: rgba(10, 22, 34, 0.9); }
 
+/* 老板来电横幅: 从顶部滑下的深色胶囊, 装饰性接听/挂断按钮不可点; 自身也叠加同一套抖动动画 */
+#intro-call-banner {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%) translateY(-140%);
+  transition: transform 0.4s ease;
+  background: rgba(10, 14, 20, 0.94);
+  border: 1.5px solid #3a4a5a;
+  border-radius: 22px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #eef6ff;
+  z-index: 2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+#intro-call-banner.hidden { display: none; }
+#intro-call-banner.show { transform: translateX(-50%) translateY(0); }
+#intro-call-banner.intro-shake-2 { animation: introShakeBuzz 0.4s ease-in-out 2; }
+.intro-call-icon { font-size: 14px; }
+.intro-call-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+.intro-call-btn.accept { background: #3fbf60; color: #062b0d; }
+.intro-call-btn.decline { background: #e0443f; color: #2b0808; }
+
+/* 消息刷屏气泡: 从对话框上方自上而下堆叠, 一直保留到phase1结束(白闪时统一清空) */
+#intro-chat-stack {
+  position: absolute;
+  top: 58px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 2;
+  pointer-events: none;
+}
+.intro-chat-bubble {
+  align-self: flex-start;
+  max-width: 80%;
+  background: rgba(20, 26, 36, 0.92);
+  border: 1px solid #3a4a5a;
+  border-radius: 12px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: #eef6ff;
+  animation: introChatIn 0.25s ease;
+}
+@keyframes introChatIn {
+  0% { opacity: 0; transform: translateY(-6px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
 /* 对话框: 深色半透明面板, 约屏幕高度30%, 圆角; 整个框都是可点击区域(点击=跳字/下一句) */
 #intro-dialogue-box {
   position: relative;
@@ -999,6 +1078,15 @@ html, body {
   gap: 12px;
   cursor: pointer;
 }
+/* 表情精灵表裁剪参数 (assets/maru_expressions.png 原图1254x1254, 3列2行, 单格418x627px):
+   - CELL_W=418 / CELL_H=627: 网格本身的选格逻辑(选第几张表情), 已验证正确, 不要动
+   - FACE_OFFSET_Y=60px: 在每格内部, 从格子顶部往下跳过多少像素再开始取景——原本从格顶(帽尖)
+     直接往下切410px, 导致下巴/嘴巴太贴近取景框底边缘, 6张里有几张几乎被切掉。往下平移60px
+     跳过多余的帽檐留白, 让取景框对准"脸"而不是"帽子"
+   - CROP=395px: 取景框的正方形边长(原本410px), 略微收紧(=放大取景)让脸占满头像框, 同时
+     配合上面的偏移量保证下巴仍有余量。二者是同一整体的两个旋钮, 需要再调时一起改
+   - 头像框固定72x72px不变; background-size = 1254 * (72/CROP), background-position 由
+     每格的 (列*CELL_W, 行*CELL_H+FACE_OFFSET_Y) 换算成同一等比例的px值 */
 .intro-avatar {
   flex-shrink: 0;
   width: 72px;
@@ -1007,17 +1095,16 @@ html, body {
   border: 2px solid #ffd86b;
   background-image: url("assets/maru_expressions.png");
   background-repeat: no-repeat;
-  background-size: 220.2px 220.2px; /* 原图1254px * (72/410) 的等比缩放 */
+  background-size: 228.58px 228.58px; /* 1254 * (72/395) */
   image-rendering: pixelated;
 }
 .intro-avatar.hidden { display: none; }
-/* 表情精灵表: 3列2行, 每格取左上410x410方形(排除格子底部的说明文字), 见 assets/maru_expressions.png */
-.maru-expr-1 { background-position: 0 0; }
-.maru-expr-2 { background-position: -73.4px 0; }
-.maru-expr-3 { background-position: -146.8px 0; }
-.maru-expr-4 { background-position: 0 -110.11px; }
-.maru-expr-5 { background-position: -73.4px -110.11px; }
-.maru-expr-6 { background-position: -146.8px -110.11px; }
+.maru-expr-1 { background-position: 0px -10.94px; }
+.maru-expr-2 { background-position: -76.19px -10.94px; }
+.maru-expr-3 { background-position: -152.38px -10.94px; }
+.maru-expr-4 { background-position: 0px -125.23px; }
+.maru-expr-5 { background-position: -76.19px -125.23px; }
+.maru-expr-6 { background-position: -152.38px -125.23px; }
 
 #intro-text-col {
   flex: 1 1 auto;
