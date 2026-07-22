@@ -16,23 +16,24 @@ import {
   FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, BLUEPRINTS, BP_CATEGORY_LABEL, RAFT_PARTS,
   BUILDS, SKILL_DEFS, ACCESSORY_DEFS, COSTUME_OPTIONS, SHOP_HAIR_EXTRA, SHOP_ITEMS,
   FOOD_DEFS, RES_LABEL, BAG_CATEGORY_LABEL, BAG_CATEGORY_ORDER,
+  ZONES, zoneDef, zoneSlotConfig,
 } from "./data.js";
 import {
   state, costumeState, saveCostume, save, canAfford, ownsBlueprint,
-  zoneTotalSlots, zoneSlotConfig, canExpandZone, resLine,
+  zoneTotalSlots, resLine,
 } from "./state.js";
 import {
   doExpandRaft, tryBuild, tryBuildPart, doUpgradeRod, craftMaxAffordable,
   doCraftRope, doCraftRepairKit, doMakeJerky, doSmeltIron, doEatCoconutRaw,
   doOpenCoconut, doEatCoconutMeat, doEatCoconutJuice, doFishLoot, doRummage,
-  doZoneSwitch, doEat, doDrink, doFeedPet, doSellFish, doBuyItem,
+  doZoneTravel, canExpandZone, doEat, doDrink, doFeedPet, doSellFish, doBuyItem,
   doDiscardBagItem, doSellBagItem, treeHasTierUnlocked, canUnlockSkillNode,
   unlockSkillNode,
 } from "./actions.js";
 import {
   fishingState, fishingPhaseUntil, fishingPhaseDur, fishingBiteTier, rodChance, displayChancePct,
 } from "./fishing.js";
-import { ACHIEVEMENTS, ACHV_CATEGORY_LABEL } from "./systems.js";
+import { ACHIEVEMENTS, ACHV_CATEGORY_LABEL, isZoneUnlocked, zoneUnlockProgress } from "./systems.js";
 
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
 export let selectedBait = "seaweed";       // 当前选中的鱼饵 (下拉选择, 默认水草)
@@ -92,7 +93,7 @@ export function renderBestiary() {
       <div class="fish-icon">${iconHtml}</div>
       <div class="fish-name">${entry ? def.name : "???"}</div>
       <div class="rarity-tag rarity-${def.rarity}">${RARITY_LABEL[def.rarity]}</div>
-      <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${entry.firstZone === "river" ? "河流" : "溪流"}` : "尚未发现"}</div>
+      <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${zoneDef(entry.firstZone).name}` : "尚未发现"}</div>
       ${recordHtml}
     `;
     grid.appendChild(card);
@@ -572,7 +573,7 @@ export function renderCraftModal() {
   };
 
   addRecipeRow("craft_rope", "🪢", "木头→绳子", "把木头拧成绳子,基础合成材料", CONFIG.ROPE_CRAFT.cost, CONFIG.ROPE_CRAFT.yield, doCraftRope, true);
-  addRecipeRow("craft_kit", "🔧", "木筏修复包", "用于河流突发事件中修复船身损耗", CONFIG.REPAIR_KIT_CRAFT.cost, CONFIG.REPAIR_KIT_CRAFT.yield, doCraftRepairKit, false);
+  addRecipeRow("craft_kit", "🔧", "木筏修复包", "用于突发事件中修复船身损耗", CONFIG.REPAIR_KIT_CRAFT.cost, CONFIG.REPAIR_KIT_CRAFT.yield, doCraftRepairKit, false);
   if (state.builds.dryer) addRecipeRow("craft_jerky", "🥩", "鱼→鱼干", "晒制鱼干,用于喂养宠物", CONFIG.JERKY_CRAFT.cost, CONFIG.JERKY_CRAFT.yield, doMakeJerky, true);
   if (state.builds.furnace) addRecipeRow("smelt", "🔥", "废铁→铁块", "将原矿冶炼为金属材料,解锁更多高级合成", CONFIG.SMELT_CRAFT.cost, CONFIG.SMELT_CRAFT.yield, doSmeltIron, true);
 
@@ -625,11 +626,8 @@ export function renderGuide() {
   } else {
     let html = `<div class="guide-title">🎉 已进入铁器时代!</div>`;
     html += `<div class="guide-item done">✅ 拥有自动收集网,挂机产出已解锁</div>`;
-    if (state.zone === "stream") {
-      html += `<div class="guide-item ${state.zoneCooldownUntil <= Date.now() ? "done" : ""}">${state.zoneCooldownUntil <= Date.now() ? "✅" : "⬜"} 可以前往河流探索新流域了</div>`;
-    } else {
-      html += `<div class="guide-item done">✅ 已经在河流流域探索中</div>`;
-    }
+    html += `<div class="guide-item done">✅ 当前所在流域: ${zoneDef(state.zone).name}</div>`;
+    html += `<div class="guide-hint">提示: 打开「🗺️ 地图」查看还有哪些流域可以探索, 以及解锁它们还差什么</div>`;
     const ownedBp = Object.keys(state.blueprints).length;
     const totalBp = Object.keys(BLUEPRINTS).length;
     html += `<div class="guide-item">📐 图纸收集进度: ${ownedBp}/${totalBp}</div>`;
@@ -660,6 +658,7 @@ export const BAG_ITEMS = [
 
   { key: "jerky", icon: "🍢", name: "鱼干", category: "item", eat: () => doFeedPet(), eatLabel: "宠物饱食度+", actionLabel: "喂宠物", sellPrice: 2 },
   { key: "raftkit", icon: "🧰", name: "修复包", category: "item", eat: null, sellPrice: 3 },
+  { key: "fossil", icon: "🦴", name: "化石碎片", category: "item", eat: null, sellPrice: 5 },
 ];
 
 // 自检: 确保 state.res 里每个资源key都能在 BAG_ITEMS 找到对应的展示项, 避免未来新增资源时又"静默消失"
@@ -740,13 +739,15 @@ export function toggleBaitDropdown() {
 }
 
 // ====== 进场词条 (Roguelite buff) ======
-export function openBuffModal() {
+// zoneKey: 触发这次祝福选择的流域 key, 用于弹窗标题 + 标记该流域"已经领取过一次性祝福"(见 data.js ZONES)
+export function openBuffModal(zoneKey) {
   const keys = Object.keys(BUFFS_REF);
   const choices = [];
   while (choices.length < 3 && choices.length < keys.length) {
     const k = pickRef(keys);
     if (!choices.includes(k)) choices.push(k);
   }
+  document.getElementById("buff-modal-title").textContent = `⛵ 进入${zoneDef(zoneKey).name} - 选择一个祝福`;
   const box = document.getElementById("buff-options");
   box.innerHTML = "";
   choices.forEach(key => {
@@ -755,8 +756,9 @@ export function openBuffModal() {
     btn.className = "buff-opt-btn";
     btn.innerHTML = `${def.icon} <b>${def.name}</b><br>${def.desc}`;
     btn.onclick = () => {
-      state.currentBuff = key;
-      if (key === "shield") state.shieldAvailable = true;
+      state.currentBuff = key; // 替换掉之前生效的祝福(如果有)
+      state.shieldAvailable = key === "shield";
+      state.zoneBlessed[zoneKey] = true; // 每个流域终身只发一次, 之后再来不会重复弹出
       document.getElementById("buff-modal").classList.add("hidden");
       toastRef(`获得祝福: ${def.icon}${def.name}!`);
       updateUI();
@@ -772,7 +774,7 @@ import { pick as pickRef, toast as toastRef } from "./state.js";
 // ====== UI 渲染: 总刷新入口 ======
 export function updateUI() {
   document.getElementById("stat-era").textContent = state.era === "iron" ? "⚙️ 铁器时代" : "🪵 石器时代";
-  document.getElementById("stat-zone").textContent = state.zone === "river" ? "📍 河流" : "📍 溪流";
+  document.getElementById("stat-zone").textContent = `📍 ${zoneDef(state.zone).name}`;
   document.getElementById("topbar-raftstats").textContent =
     `⚡速${state.raftStats.speed} 🛡牢${state.raftStats.sturdy} 🎨美${state.raftStats.beauty}`;
   document.getElementById("topbar-gold").textContent = `🪙 ${Math.floor(state.gold)}`;
@@ -785,34 +787,15 @@ export function updateUI() {
   fillEl.classList.toggle("mid", energyPct >= 30 && energyPct < 80);
   document.getElementById("energy-value").textContent = `${Math.round(state.energy)}/100${state.energy <= 0 ? " (疲惫)" : ""}`;
 
-  // 图标导航栏按钮内含 .nav-icon(图标)+.nav-label(常驻小字"换区") —— 只切换图标和title, 标签文字不变
-  const zoneBtn = document.getElementById("btn-zone-switch");
-  const zoneBtnIcon = zoneBtn.querySelector(".nav-icon");
+  // 地图按钮: 图标常驻🗺️不再随流域切换, 冷却中时禁用点击并在title里显示剩余秒数(地图面板内部会实时刷新每个流域的锁/解锁状态)
+  const mapBtn = document.getElementById("btn-map");
   const now = Date.now();
-  if (state.zone === "stream") {
-    if (now < state.zoneCooldownUntil) {
-      zoneBtnIcon.textContent = "⛵";
-      zoneBtn.title = `冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
-      zoneBtn.disabled = true;
-    } else if (state.era !== "iron") {
-      zoneBtnIcon.textContent = "🔒";
-      zoneBtn.title = "前往河流 (需铁器时代)";
-      zoneBtn.disabled = true;
-    } else {
-      zoneBtnIcon.textContent = "⛵";
-      zoneBtn.title = "前往河流";
-      zoneBtn.disabled = false;
-    }
+  if (now < state.zoneCooldownUntil) {
+    mapBtn.title = `流域切换冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
+    mapBtn.disabled = true;
   } else {
-    if (now < state.zoneCooldownUntil) {
-      zoneBtnIcon.textContent = "🏞️";
-      zoneBtn.title = `冷却中 (${Math.ceil((state.zoneCooldownUntil - now) / 1000)}s)`;
-      zoneBtn.disabled = true;
-    } else {
-      zoneBtnIcon.textContent = "🏞️";
-      zoneBtn.title = "返回溪流";
-      zoneBtn.disabled = false;
-    }
+    mapBtn.title = "查看地图";
+    mapBtn.disabled = false;
   }
 
   const energyExhausted = state.energy <= 0;
@@ -849,6 +832,46 @@ export function updateUI() {
 // ====== 统一面板切换: 所有信息/管理类弹窗都经过 openPanel(name), 保证同一时刻最多一个可见 ======
 // 点开一个面板时会自动关掉其它任何已开的面板(含漂流瓶弹窗), 无需先手动关闭再点开下一个;
 // 再次点击当前已打开面板对应的按钮 = 关闭(toggle), 不会重新打开。
+// ====== 地图面板: 5流域纵向列表, 已解锁可点击前往, 未解锁灰显🔒+实时解锁进度 ======
+function renderMapModal() {
+  const box = document.getElementById("map-zone-list");
+  box.innerHTML = "";
+  ZONES.forEach(z => {
+    const unlocked = isZoneUnlocked(z.key);
+    const isCurrent = state.zone === z.key;
+    const row = document.createElement("div");
+    row.className = "map-zone-row" + (isCurrent ? " current" : "") + (unlocked ? "" : " locked");
+    if (unlocked) {
+      row.innerHTML = `
+        <div class="map-zone-icon">${isCurrent ? "📍" : "⛵"}</div>
+        <div class="map-zone-info">
+          <div class="map-zone-name">${z.name}${isCurrent ? " (当前)" : ""}</div>
+          <div class="map-zone-sub">木筏上限 ${z.raftCap}格</div>
+        </div>
+      `;
+      if (!isCurrent) {
+        const btn = document.createElement("button");
+        btn.className = "map-zone-go-btn";
+        btn.textContent = "前往";
+        btn.onclick = () => {
+          doZoneTravel(z.key);
+          document.getElementById("map-modal").classList.add("hidden");
+        };
+        row.appendChild(btn);
+      }
+    } else {
+      row.innerHTML = `
+        <div class="map-zone-icon">🔒</div>
+        <div class="map-zone-info">
+          <div class="map-zone-name">${z.name}</div>
+          <div class="map-zone-sub">${zoneUnlockProgress(z.key)}</div>
+        </div>
+      `;
+    }
+    box.appendChild(row);
+  });
+}
+
 const PANEL_DEFS = {
   guide: { id: "guide-modal" },
   bag: { id: "bag-modal", render: () => { bagExpandedKey = null; renderBagModal(); } },
@@ -861,6 +884,7 @@ const PANEL_DEFS = {
   build: { id: "build-modal", render: renderBuildModal },
   craft: { id: "craft-modal", render: renderCraftModal },
   saveio: { id: "save-io-modal" },
+  map: { id: "map-modal", render: renderMapModal },
 };
 const PANEL_CLOSE_IDS = [...Object.values(PANEL_DEFS).map(p => p.id), "bottle-modal"];
 

@@ -8,15 +8,16 @@ import {
   LOOT_TABLE_STONE, LOOT_TABLE_IRON, RUMMAGE_TABLE_STONE, RUMMAGE_TABLE_IRON,
   CHEST_LOOT, ANACHRONISMS, RUMMAGE_JOKES, BLUEPRINTS, RAFT_PARTS, BUILDS,
   PET_TYPES, FOOD_DEFS, SKILL_DEFS, BUFFS, SHOP_ITEMS,
+  zoneDef, zoneBasin, zoneSlotConfig,
 } from "./data.js";
 import {
   state, toast, spendEnergy, restoreEnergy, efficiency, addRes, resLine, pick,
   canAfford, payCost, save, ownsBlueprint, grantBlueprint, grantRandomBlueprint,
-  zoneSlotConfig, zoneTotalSlots, canExpandZone, zoneCooldownMs,
+  zoneTotalSlots, zoneCooldownMs,
 } from "./state.js";
 import { updateUI, setWorkshopFeedback, openBuffModal, renderSkillTree, BAG_ITEMS } from "./ui.js";
 import { rodChance, displayChancePct, rodUpgradeCost } from "./fishing.js";
-import { checkBuildAchievements, unlockAchievement, isModalOpen } from "./systems.js";
+import { checkBuildAchievements, unlockAchievement, isModalOpen, isZoneUnlocked } from "./systems.js";
 import { sfx } from "./audio.js";
 
 // ====== 图纸 / 木筏部件 ======
@@ -47,9 +48,14 @@ export function tryBuildPart(key) {
 }
 
 // ====== 木筏面积/扩建 ======
+// 需要读 data.js 的 ZONES 表, 按分层规则不能放进 state.js, 因此放在这里 (ui.js 也从这里导入它)。
+export function canExpandZone(zone) {
+  return state.raftSlots < zoneSlotConfig(zone).max;
+}
+
 export function doExpandRaft() {
   const zone = state.zone;
-  if (!canExpandZone(zone)) { sfx.error(); toast("木筏面积已达上限"); return; }
+  if (!canExpandZone(zone)) { sfx.error(); toast(`这片水域的木筏最多扩建到${zoneSlotConfig(zone).max}格,前往更开阔的水域解锁更大船体`); return; }
   if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再扩建吧"); setWorkshopFeedback("expand", false); return; }
   if (!canAfford(CONFIG.EXPAND_COST)) { sfx.error(); toast("材料不够"); setWorkshopFeedback("expand", false); return; }
   sfx.build();
@@ -166,7 +172,7 @@ export function doFishLoot() {
   const table = state.era === "iron" ? LOOT_TABLE_IRON : LOOT_TABLE_STONE;
   let loot = pick(table);
   const netBonus = state.builds.net ? 1.5 : 1;
-  const bountyBonus = (state.currentBuff === "bounty" && state.zone === "river") ? 1.5 : 1;
+  const bountyBonus = (state.currentBuff === "bounty" && zoneBasin(state.zone) === "river") ? 1.5 : 1;
   const scaled = {};
   for (const k in loot) {
     let amt = Math.max(1, Math.round(loot[k] * Math.max(0.3, eff + eventEff) * netBonus * bountyBonus));
@@ -303,7 +309,7 @@ function rummageLootTable() {
   return state.era === "iron" ? RUMMAGE_TABLE_IRON : RUMMAGE_TABLE_STONE;
 }
 function rummageSuccessChance() {
-  return CONFIG.RUMMAGE_CHANCE[state.zone] || CONFIG.RUMMAGE_CHANCE.stream;
+  return CONFIG.RUMMAGE_CHANCE[zoneBasin(state.zone)] || CONFIG.RUMMAGE_CHANCE.stream;
 }
 
 export function doRummage() {
@@ -322,7 +328,7 @@ export function doRummage() {
 
   if (Math.random() < rummageSuccessChance() * eff) {
     const loot = pick(rummageLootTable());
-    const bountyBonus = (state.currentBuff === "bounty" && state.zone === "river") ? 1.5 : 1;
+    const bountyBonus = (state.currentBuff === "bounty" && zoneBasin(state.zone) === "river") ? 1.5 : 1;
     const scaledLoot = {};
     for (const k in loot) {
       let amt = Math.max(1, Math.round(loot[k] * bountyBonus));
@@ -367,6 +373,7 @@ export function tryBuild(key) {
   else if (key === "hammer") toast("获得了锤子! 🔨 可以敲椰子了");
   else if (key === "purifier") toast("获得了净水过滤器! 🚰 开始缓慢产水");
   else if (key === "dryer") toast("获得了晒鱼架! 🍢 现在可以晒鱼干喂宠物了");
+  else if (key === "anchor") toast("获得了加固船锚! ⚓ 木筏可以驶向更深的水域了");
   else toast(`获得了${def.name}`);
 
   checkBuildAchievements();
@@ -374,8 +381,11 @@ export function tryBuild(key) {
   save();
 }
 
-// ====== 流域系统 ======
-export function doZoneSwitch() {
+// ====== 流域系统 (5流域, 数据驱动) ======
+// 由 地图面板 里点击某个已解锁流域触发。同一水域(basin)内互相往返即时且免费,
+// 木筏/背包/建筑等其余一切照旧, 只有"流域切换冷却"和"当前流域"会变化。
+export function doZoneTravel(targetZoneKey) {
+  if (targetZoneKey === state.zone) return;
   const now = Date.now();
   if (now < state.zoneCooldownUntil) {
     const left = Math.ceil((state.zoneCooldownUntil - now) / 1000);
@@ -385,26 +395,22 @@ export function doZoneSwitch() {
     save();
     return;
   }
-  if (state.zone === "stream") {
-    if (state.era !== "iron") { sfx.error(); toast("需要先跃升到铁器时代(造出自动收集网)才能前往河流"); return; }
-    state.zone = "river";
-    state.everVisitedRiver = true;
-    state.castStreak = 0;
-    state.shieldAvailable = false;
-    state.nextEventAt = now + 90000 + Math.random() * 60000;
-    state.zoneCooldownUntil = now + zoneCooldownMs();
-    state.stats.zoneEnterAt = now;
-    toast("⛵ 木筏缓缓驶入了宽阔的河流...");
-    openBuffModal();
-  } else {
-    state.zone = "stream";
-    state.currentBuff = null;
-    state.castStreak = 0;
-    state.stormForceReturnAt = 0;
-    state.nextEventAt = now + 90000 + Math.random() * 60000;
-    state.zoneCooldownUntil = now + zoneCooldownMs();
-    state.stats.zoneEnterAt = now;
-    toast("🏞️ 回到了平静的溪流");
+  if (!isZoneUnlocked(targetZoneKey)) { sfx.error(); toast("这片水域还未解锁"); return; }
+
+  const targetDef = zoneDef(targetZoneKey);
+  state.zone = targetZoneKey;
+  if (zoneBasin(targetZoneKey) === "river") state.everVisitedRiver = true;
+  else state.stormForceReturnAt = 0; // 回到溪流水域: 河流专属的暴风雨强制离场窗口作废
+  state.castStreak = 0;
+  state.shieldAvailable = state.currentBuff === "shield"; // 风浪免疫是否还可用, 取决于当前生效的祝福
+  state.nextEventAt = now + 90000 + Math.random() * 60000;
+  state.zoneCooldownUntil = now + zoneCooldownMs();
+  state.stats.zoneEnterAt = now;
+  toast(`⛵ 木筏缓缓驶入了「${targetDef.name}」...`);
+
+  // 每个流域(除起始的初语浅溪外)首次抵达时提供一次性祝福选择, 选择会替换掉之前生效的祝福; 之后再来不会重复弹出
+  if (targetZoneKey !== "stream_clear" && !state.zoneBlessed[targetZoneKey]) {
+    openBuffModal(targetZoneKey);
   }
   updateUI();
   save();

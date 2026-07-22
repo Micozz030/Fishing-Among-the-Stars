@@ -385,7 +385,7 @@ html, body {
    固定定位, 锚定右上角, 不随页面滚动, 不阻断游戏其余区域的操作 ====== */
 #bestiary-modal, #blueprint-modal, #skilltree-modal,
 #achievement-modal, #costume-modal, #shop-modal, #bottle-modal,
-#build-modal, #craft-modal, #guide-modal, #bag-modal, #save-io-modal {
+#build-modal, #craft-modal, #guide-modal, #bag-modal, #save-io-modal, #map-modal {
   position: fixed; inset: 0;
   background: transparent;
   pointer-events: none;
@@ -393,7 +393,7 @@ html, body {
 }
 #bestiary-modal.hidden, #blueprint-modal.hidden, #skilltree-modal.hidden,
 #achievement-modal.hidden, #costume-modal.hidden, #shop-modal.hidden, #bottle-modal.hidden,
-#build-modal.hidden, #craft-modal.hidden, #guide-modal.hidden, #bag-modal.hidden, #save-io-modal.hidden { display: none; }
+#build-modal.hidden, #craft-modal.hidden, #guide-modal.hidden, #bag-modal.hidden, #save-io-modal.hidden, #map-modal.hidden { display: none; }
 
 .chest-box {
   position: relative;
@@ -409,7 +409,7 @@ html, body {
 #bestiary-modal .chest-box, #blueprint-modal .chest-box, #skilltree-modal .chest-box,
 #achievement-modal .chest-box, #costume-modal .chest-box, #shop-modal .chest-box, #bottle-modal .chest-box,
 #build-modal .chest-box, #craft-modal .chest-box, #guide-modal .chest-box, #bag-modal .chest-box,
-#save-io-modal .chest-box {
+#save-io-modal .chest-box, #map-modal .chest-box {
   position: fixed;
   top: 78px;
   right: 8px;
@@ -919,6 +919,38 @@ html, body {
   min-width: 0;
   font-size: 11px;
   color: #9fc3d6;
+}
+
+/* ====== 地图面板: 流域纵向列表 ====== */
+.map-box { width: 300px; text-align: left; }
+.map-box h2 { text-align: center; }
+.map-zone-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 2px solid #2a4a64;
+  border-radius: 10px;
+  background: #0e2233;
+}
+.map-zone-row.current { border-color: #ffd86b; background: #1a3a52; }
+.map-zone-row.locked { opacity: 0.55; }
+.map-zone-icon { font-size: 22px; flex: 0 0 auto; width: 28px; text-align: center; }
+.map-zone-info { flex: 1 1 auto; min-width: 0; }
+.map-zone-name { font-size: 13.5px; font-weight: bold; color: #eef6ff; }
+.map-zone-sub { font-size: 11px; color: #9fc3d6; margin-top: 2px; }
+.map-zone-go-btn {
+  flex: 0 0 auto;
+  background: #ffd86b;
+  color: #16324a;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 .reset-danger-btn {
   background: #7a1a1a !important;

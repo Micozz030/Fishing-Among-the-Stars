@@ -10,6 +10,7 @@ export const ICONS = {
   bread: "🍞", spam: "🥫", fish: "🐟", water: "💧", trash: "🗑️", raftkit: "🧰",
   jerky: "🍢",
   coconut_meat: "🍖", coconut_juice: "🥤",
+  fossil: "🦴",
 };
 
 export const CONFIG = {
@@ -18,7 +19,7 @@ export const CONFIG = {
   BLUEPRINT_DROP_CHANCE: 0.13,                        // 翻垃圾掉落图纸概率
   RAFT_PART_COST_MULTIPLIER: 2,                       // 图纸建筑材料成本倍数
   EXPAND_COST: { wood: 15, rope: 5 },                  // 每次扩建木筏消耗
-  INITIAL_RAFT_SLOTS: 6,                              // 新存档初始木筏格数 (2×3)
+  INITIAL_RAFT_SLOTS: 4,                              // 新存档初始木筏格数
   ROPE_CRAFT: { cost: { wood: 5 }, yield: { rope: 2 } },        // 合成绳子
   REPAIR_KIT_CRAFT: { cost: { wood: 8 }, yield: { raftkit: 1 } }, // 合成木筏修复包
   JERKY_CRAFT: { cost: { fish: 3 }, yield: { jerky: 1 } },        // 晒鱼干
@@ -33,10 +34,6 @@ export const CONFIG = {
   PET_DECAY_INTERVAL: 600,          // 宠物饱食度每10分钟(秒)衰减一次
   PET_DECAY_AMOUNT: 10,
   PET_GIFT_CHANCE_PER_MIN: 0.05,    // 饱食度满时, 每分钟5%概率叼来礼物
-  ZONE_SLOTS: {
-    stream: { base: 4, max: 9, step: 1 },   // 溪流: 最大3×3=9格
-    river: { base: 9, max: 25, step: 4 },    // 河流: 最大5×5=25格
-  },
   ENERGY_REGEN_INTERVAL: 30,        // 精力耗尽后, 每隔多少秒被动恢复一次
   ENERGY_REGEN_AMOUNT: 5,           // 每次被动恢复的精力值
   AUTO_COLLECTOR_FISH_WEIGHT: 1.5,  // 自动收集网掉落表中"普通鱼"相对其他条目的权重倍数

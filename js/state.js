@@ -20,7 +20,7 @@ export const SAVE_VERSION = 3;
 export const state = {
   version: SAVE_VERSION,
   era: "stone", // stone -> iron
-  res: { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0 },
+  res: { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0, fossil: 0 },
 
   // ---- 角色/宠物选择 ----
   character: null,             // "female" | "male", 首次开局选择
@@ -60,9 +60,11 @@ export const state = {
   lastTick: Date.now(),
 
   // ---- 流域/图鉴/事件 ----
-  zone: "stream",              // stream | river
+  zone: "stream_clear",        // 见 data.js 的 ZONES (5个有序流域 key)
+  zoneBlessed: {},              // { zoneKey: true } 该流域是否已经领取过一次性祝福(每个流域终身只发一次)
+  autoNetCollections: 0,        // 自动收集网累计成功打捞次数 (用于解锁 river_entrance)
   bestiary: {},                // { fishKey: { caught, count, firstZone } }
-  currentBuff: null,           // 进入河流时选择的词条 key
+  currentBuff: null,           // 当前生效的进场词条 key (由某个流域的一次性祝福选择而来, 换流域不失效, 只会被新的祝福选择替换)
   shieldAvailable: false,      // 风浪免疫词条剩余次数(0或1)
   castStreak: 0,               // 精准直觉连续钓鱼计数
   fishCooldownUntil: 0,        // 钓鱼冷却结束时间戳
@@ -108,7 +110,14 @@ export const state = {
 
 // 供 load()/migrate() 内部复用的"资源默认形状", 也用于给全新存档发放初始礼包
 function defaultRes() {
-  return { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0 };
+  return { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0, fossil: 0 };
+}
+
+// 旧存档兼容: 2流域(stream/river) → 5流域 key 迁移
+function migrateZoneKey(zoneKey) {
+  if (zoneKey === "stream") return "stream_clear";
+  if (zoneKey === "river") return "river_entrance";
+  return zoneKey || "stream_clear";
 }
 
 // PET_TYPES 的合法宠物种类集合, 由 state.js 之外的模块在需要迁移校验时传入, 避免 state.js 反向依赖 data.js。
@@ -155,7 +164,9 @@ export function migrate(data, validPetTypes) {
     build: Object.assign({ handy: false, thrifty: false, veteran: false, pipeline: false, automation_master: false }, data.skills && data.skills.build),
     fish: Object.assign({ instinct: false, bait_research: false, rare_sense: false, deepwater: false, legend_hunter: false }, data.skills && data.skills.fish),
   };
-  if (!data.zone) state.zone = "stream";
+  state.zone = migrateZoneKey(data.zone);
+  state.zoneBlessed = data.zoneBlessed || {};
+  state.autoNetCollections = data.autoNetCollections || 0;
   if (data.nextEventAt === undefined) state.nextEventAt = Date.now() + 90000;
   if (data.energy === undefined) state.energy = 80;
   state.lastActionAt = Date.now();
@@ -421,15 +432,12 @@ export function payCost(cost) {
 
 // ====== 木筏面积/扩建 (派生只读值) ======
 // state.raftSlots 是木筏格数的唯一数据源(Single Source of Truth), 只能被 doExpandRaft() 显式修改。
-// 各流域的 ZONE_SLOTS.max 仅用作"在该流域内是否还能继续扩建"的门槛, 绝不能用来对已达成的格数做上限/下限裁剪——
-// 否则会出现"切换流域时木筏显示的格数忽大忽小"的历史bug (根因即此前 zoneTotalSlots 用 cfg.base 做了展示层下限)。
-export function zoneSlotConfig(zone) { return CONFIG.ZONE_SLOTS[zone] || CONFIG.ZONE_SLOTS.stream; }
+// 各流域的 raftCap 仅用作"在该流域内是否还能继续扩建"的门槛, 绝不能用来对已达成的格数做上限/下限裁剪——
+// 否则会出现"切换流域时木筏显示的格数忽大忽小"的历史bug (根因即此前 zoneTotalSlots 用下限裁剪过展示值)。
+// 注: zoneSlotConfig/canExpandZone 需要读取 data.js 的 ZONES 表, 按"state.js 只依赖 config.js"的分层规则,
+// 这两个函数被放在 actions.js (canExpandZone) / data.js (zoneSlotConfig, 纯函数不需要 state) 而非本文件。
 export function zoneTotalSlots() {
   return state.raftSlots;
-}
-export function canExpandZone(zone) {
-  const cfg = zoneSlotConfig(zone);
-  return state.raftSlots < cfg.max;
 }
 export function zoneCooldownMs() {
   const reduction = Math.min(90, state.raftStats.speed * 5);

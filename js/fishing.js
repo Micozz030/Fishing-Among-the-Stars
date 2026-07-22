@@ -11,7 +11,7 @@
 // 模块级"当前回调"闭包变量, 复杂度和出错概率都更高, 故这里选择直接接受这个受控的循环依赖。
 
 import { CONFIG, MINIGAME_CONFIG } from "./config.js";
-import { FISH, FISH_PIXEL_GRIDS, RARITY_LABEL } from "./data.js";
+import { FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, zoneBasin } from "./data.js";
 import {
   state, ctx, toast, spendEnergy, spawnFloatingText, flashLegendary, pick, save,
   efficiency,
@@ -39,8 +39,8 @@ export let biteAlertStartAt = 0;           // 咬钩预警阶段开始时间戳,
 
 const FISH_ESCAPE_JOKES = ["跑了!手慢了一步", "差一点……", "这条鱼太狡猾了"];
 
-function fishPool(zone, rarity) {
-  return Object.keys(FISH).filter(k => FISH[k].rarity === rarity && FISH[k].zones.includes(zone));
+function fishPool(basin, rarity) {
+  return Object.keys(FISH).filter(k => FISH[k].rarity === rarity && FISH[k].zones.includes(basin));
 }
 
 // 根据鱼种稀有度+专属体长倍率, 随机生成本次捕获的长度(cm), 保留1位小数
@@ -87,20 +87,20 @@ export function registerCatch(fishKey, isExtra, length) {
 
 // 根据当前流域+词条+技能决定本次钓上的鱼种
 export function rollFishSpecies(forceTier) {
-  const zone = state.zone;
+  const basin = zoneBasin(state.zone);
   const legendaryChance = 0.005;
   let tier = forceTier;
   if (!tier) {
     if (Math.random() < legendaryChance) tier = "legendary";
-    else if (zone === "river") {
+    else if (basin === "river") {
       const luckBonus = state.currentBuff === "luck" ? 0.20 : 0;
       tier = Math.random() < (0.08 + luckBonus) ? "rare" : "common";
     } else {
       tier = "common";
     }
   }
-  let pool = fishPool(zone, tier);
-  if (!pool.length) pool = fishPool(zone, "common");
+  let pool = fishPool(basin, tier);
+  if (!pool.length) pool = fishPool(basin, "common");
   return pick(pool);
 }
 
@@ -127,7 +127,7 @@ function getRareLegendaryMultiplier(baitKey) {
   let rare = bm.rare;
   let legendary = bm.legendary;
   if (state.skills.fish.rare_sense) { rare *= 1.2; legendary *= 1.1; }
-  if (state.currentBuff === "precision" && state.zone === "river") { rare *= 1.15; legendary *= 1.15; }
+  if (state.currentBuff === "precision" && zoneBasin(state.zone) === "river") { rare *= 1.15; legendary *= 1.15; }
   return { rare, legendary };
 }
 
@@ -135,7 +135,7 @@ function getRareLegendaryMultiplier(baitKey) {
 function rollFishTierWithBait(baitKey) {
   const mults = getRareLegendaryMultiplier(baitKey);
   if (Math.random() < 0.005 * mults.legendary) return "legendary";
-  if (state.zone === "river") {
+  if (zoneBasin(state.zone) === "river") {
     const luckBonus = state.currentBuff === "luck" ? 0.20 : 0;
     if (Math.random() < (0.08 + luckBonus) * mults.rare) return "rare";
   }
@@ -243,7 +243,7 @@ function resolveFishCatch() {
   const eff = efficiency();
   const chance = Math.min(1, (rodChance() + tempHit) * eff);
   const hit = Math.random() < chance;
-  const precisionActive = state.currentBuff === "precision" && state.zone === "river";
+  const precisionActive = state.currentBuff === "precision" && zoneBasin(state.zone) === "river";
 
   if (hit) {
     sfx.commonCatch();

@@ -8,7 +8,7 @@ import {
   exportSaveString, importSaveString, toast,
 } from "./state.js";
 import {
-  doFishLoot, doRummage, doZoneSwitch, doPetInteract, wirePetAnimation,
+  doFishLoot, doRummage, doPetInteract, wirePetAnimation,
 } from "./actions.js";
 import { doFishing } from "./fishing.js";
 import { gameTick, bottleHit, openBottleModal, claimBottleReward } from "./systems.js";
@@ -32,7 +32,8 @@ initAudioOnGesture();
 
 document.getElementById("btn-fish-loot").onclick = doFishLoot;
 document.getElementById("btn-rummage").onclick = doRummage;
-document.getElementById("btn-zone-switch").onclick = doZoneSwitch;
+document.getElementById("btn-map").onclick = () => openPanel("map");
+document.getElementById("map-close").onclick = () => document.getElementById("map-modal").classList.add("hidden");
 
 document.getElementById("btn-guide").onclick = () => openPanel("guide");
 document.getElementById("guide-close").onclick = () => document.getElementById("guide-modal").classList.add("hidden");

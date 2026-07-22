@@ -8,7 +8,8 @@
 
 import { CONFIG, BOTTLE_REST_X, ICONS } from "./config.js";
 import {
-  BLUEPRINTS, PET_TYPES, LOOT_TABLE_STONE, LOOT_TABLE_IRON, FISH,
+  BLUEPRINTS, PET_TYPES, LOOT_TABLE_STONE, LOOT_TABLE_IRON, FISH, BUILDS,
+  ZONES, zoneDef, zoneBasin, zoneCommonSpecies,
 } from "./data.js";
 import {
   state, ctx, toast, addRes, resLine, pick, pickWeighted, save,
@@ -37,8 +38,42 @@ function applyTempHit(mod, durationMs) {
   state.tempHitModExpire = Date.now() + durationMs;
 }
 
-function fishPool(zone, rarity) {
-  return Object.keys(FISH).filter(k => FISH[k].rarity === rarity && FISH[k].zones.includes(zone));
+function fishPool(basin, rarity) {
+  return Object.keys(FISH).filter(k => FISH[k].rarity === rarity && FISH[k].zones.includes(basin));
+}
+
+// ====== 流域解锁条件 (数据驱动, 实时按 ZONES[].unlock 求值) ======
+export function isZoneUnlocked(zoneKey) {
+  const u = zoneDef(zoneKey).unlock;
+  if (u.type === "always") return true;
+  if (u.type === "iron_autonet") {
+    return state.era === "iron" && !!state.builds.autocollector && (state.autoNetCollections || 0) >= u.collections;
+  }
+  if (u.type === "bestiary_commons" || u.type === "bestiary_commons_and_build") {
+    const species = zoneCommonSpecies(u.ofZone);
+    const commonsDone = species.length > 0 && species.every(k => state.bestiary[k] && state.bestiary[k].caught);
+    if (u.type === "bestiary_commons_and_build") return commonsDone && !!state.builds[u.buildKey];
+    return commonsDone;
+  }
+  return false;
+}
+
+// 面板展示用: 未解锁流域的解锁条件实时进度文案, 如 "图鉴 2/3" / "自动打捞 3/5"
+export function zoneUnlockProgress(zoneKey) {
+  const u = zoneDef(zoneKey).unlock;
+  if (u.type === "always") return "";
+  if (u.type === "iron_autonet") {
+    const ironDone = state.era === "iron" && !!state.builds.autocollector;
+    return `${ironDone ? "铁器时代✓" : "铁器时代未达成"} · 自动打捞 ${Math.min(state.autoNetCollections || 0, u.collections)}/${u.collections}`;
+  }
+  const species = zoneCommonSpecies(u.ofZone);
+  const done = species.filter(k => state.bestiary[k] && state.bestiary[k].caught).length;
+  let text = `图鉴 ${done}/${species.length}`;
+  if (u.type === "bestiary_commons_and_build") {
+    const buildDef = BUILDS.find(b => b.key === u.buildKey);
+    text += ` · ${buildDef ? buildDef.icon + buildDef.name : u.buildKey} ${state.builds[u.buildKey] ? "已完成" : "未完成"}`;
+  }
+  return text;
 }
 
 const EVENTS_STREAM = [
@@ -134,12 +169,13 @@ export function isModalOpen() {
     || !document.getElementById("build-modal").classList.contains("hidden")
     || !document.getElementById("craft-modal").classList.contains("hidden")
     || !document.getElementById("bag-modal").classList.contains("hidden")
-    || !document.getElementById("bottle-modal").classList.contains("hidden");
+    || !document.getElementById("bottle-modal").classList.contains("hidden")
+    || !document.getElementById("map-modal").classList.contains("hidden");
 }
 
 function triggerRandomEvent() {
   if (isModalOpen()) return;
-  const pool = state.zone === "river" ? EVENTS_RIVER : EVENTS_STREAM;
+  const pool = zoneBasin(state.zone) === "river" ? EVENTS_RIVER : EVENTS_STREAM;
   const ev = pick(pool);
 
   if (ev.auto) {
@@ -204,9 +240,9 @@ const BOTTLE_DEFS = [
     id: "river_ripple",
     title: "远处的涟漪",
     quote: "河流里的鱼,见过吗?",
-    instruction: "你的木筏已经足够强壮了!点击顶部「前往河流」按钮,探索新的流域吧!",
+    instruction: "你的木筏已经足够强壮了!多用自动收集网打捞几次,说不定会有意外发现…打开「🗺️ 地图」看看还有哪些流域吧!",
     rewardText: "面包×2",
-    condition: () => state.era === "iron" && !state.everVisitedRiver,
+    condition: () => state.builds.autocollector && !state.everVisitedRiver,
     reward: () => addRes({ bread: 2 }),
   },
   {
@@ -477,6 +513,13 @@ export function gameTick(onboardingActive) {
         }
         addRes(scaledLoot);
         toast(`⚙️ 自动收集网捞到 ${resLine(scaledLoot)}`);
+
+        // 累计自动打捞成功次数, 用于解锁 river_entrance (第5次达成时额外送化石碎片)
+        state.autoNetCollections = (state.autoNetCollections || 0) + 1;
+        if (state.autoNetCollections === 5) {
+          addRes({ fossil: 1 });
+          toast("网里缠着一块奇怪的化石碎片…上游的水,似乎通向更远的地方");
+        }
       }
     }
   }
@@ -533,8 +576,8 @@ export function gameTick(onboardingActive) {
   // 暴风雨"赌一把"窗口到期: 强制送回溪流
   if (state.stormForceReturnAt && now >= state.stormForceReturnAt) {
     state.stormForceReturnAt = 0;
-    if (state.zone === "river") {
-      state.zone = "stream";
+    if (zoneBasin(state.zone) === "river") {
+      state.zone = "stream_clear";
       state.currentBuff = null;
       state.castStreak = 0;
       state.stats.forceExitCount.river += 1;

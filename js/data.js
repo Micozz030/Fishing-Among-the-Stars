@@ -85,6 +85,7 @@ export const BUILDS = [
   { key: "hammer", icon: "🔨", name: "锤子", desc: "解锁敲开椰子,直接回复精力", cost: { wood: 3, iron: 3 }, repeatable: false },
   { key: "purifier", icon: "🚰", name: "净水过滤器", desc: "被动缓慢产出净水 (每次消耗1塑料存储)", cost: { plastic: 5, wood: 5 }, repeatable: false },
   { key: "dryer", icon: "🍢", name: "晒鱼架", desc: "解锁晒鱼干,鱼x3 → 鱼干x1 (宠物食物)", cost: { wood: 8, rope: 3 }, repeatable: false },
+  { key: "anchor", icon: "⚓", name: "加固船锚", desc: "加固锚链,才能在核心水域的漩涡中稳住木筏", cost: { iron: 4, wood: 8, rope: 4 }, repeatable: false },
 ];
 
 // ====== 宠物系统 ======
@@ -129,6 +130,35 @@ export const FISH = {
   jellyfish: { name: "幽灵水母", icon: "👻", rarity: "legendary", zones: ["stream", "river"], pixel: true, lengthMult: 0.6 },
 };
 export const RARITY_LABEL = { common: "普通", rare: "稀有", legendary: "传说" };
+
+// ====== 流域系统: 5个有序流域, 数据驱动 (取代原来硬编码的"溪流/河流"二选一) ======
+// basin: "stream" | "river" —— 决定沿用哪一套现有鱼类/背景色/事件表(本阶段不新增鱼种/美术, 仅按 basin 复用现成内容)
+// fishPool: 与 basin 同值, 用于 FISH.zones 过滤(独立字段是为未来"某流域独立鱼池"留出扩展空间)
+// raftCap: 该流域允许把木筏建造到的上限格数; raftStep: 每次点击"扩建木筏"增加的格数
+export const ZONES = [
+  { key: "stream_clear", name: "初语浅溪", basin: "stream", fishPool: "stream", raftCap: 6, raftStep: 1, unlock: { type: "always" } },
+  { key: "stream_source", name: "雾隐溪源", basin: "stream", fishPool: "stream", raftCap: 9, raftStep: 1, unlock: { type: "bestiary_commons", ofZone: "stream_clear" } },
+  { key: "river_entrance", name: "苇声河湾", basin: "river", fishPool: "river", raftCap: 16, raftStep: 2, unlock: { type: "iron_autonet", collections: 5 } },
+  { key: "river_mid", name: "沉锚深澜", basin: "river", fishPool: "river", raftCap: 20, raftStep: 2, unlock: { type: "bestiary_commons", ofZone: "river_entrance" } },
+  { key: "river_core", name: "河神旧座", basin: "river", fishPool: "river", raftCap: 25, raftStep: 3, unlock: { type: "bestiary_commons_and_build", ofZone: "river_mid", buildKey: "anchor" } },
+];
+export function zoneDef(zoneKey) {
+  // 兼容极旧存档里 bestiary[].firstZone 仍是重构前的 "stream"/"river" 字面量(未随 migrate() 一起改写)
+  if (zoneKey === "stream") zoneKey = "stream_clear";
+  if (zoneKey === "river") zoneKey = "river_entrance";
+  return ZONES.find(z => z.key === zoneKey) || ZONES[0];
+}
+export function zoneBasin(zoneKey) { return zoneDef(zoneKey).basin; }
+// 某流域鱼池中的全部"普通"稀有度鱼种 key 列表 (用于解锁条件"该流域鱼池的普通鱼全部图鉴收录")
+export function zoneCommonSpecies(zoneKey) {
+  const pool = zoneDef(zoneKey).fishPool;
+  return Object.keys(FISH).filter(k => FISH[k].rarity === "common" && FISH[k].zones.includes(pool));
+}
+// 木筏格数配置: {max, step}。纯函数(不读 state), 供 actions.js 的 canExpandZone/doExpandRaft 使用。
+export function zoneSlotConfig(zoneKey) {
+  const z = zoneDef(zoneKey);
+  return { max: z.raftCap, step: z.raftStep };
+}
 
 // ====== 技能树 ======
 export const SKILL_DEFS = {
@@ -224,7 +254,7 @@ export const RES_LABEL = {
   wood: "木头", rope: "绳子", scrap: "废铁", iron: "铁块", seaweed: "水草", plastic: "塑料",
   coconut: "椰子", coconut_meat: "椰子肉", coconut_juice: "椰子汁",
   bread: "面包", spam: "午餐肉", fish: "鱼", water: "净水", trash: "垃圾",
-  raftkit: "修复包", jerky: "鱼干",
+  raftkit: "修复包", jerky: "鱼干", fossil: "化石碎片",
 };
 
 // ====== 背包分类标签 ======

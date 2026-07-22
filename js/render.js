@@ -6,7 +6,7 @@
 
 import { CONFIG, MINIGAME_CONFIG } from "./config.js";
 import {
-  COSTUME_OPTIONS, CHAR_FIXED_COLORS, PET_TYPES,
+  COSTUME_OPTIONS, CHAR_FIXED_COLORS, PET_TYPES, zoneBasin,
 } from "./data.js";
 import {
   state, ctx, canvas, costumeState, zoneTotalSlots,
@@ -138,7 +138,7 @@ function drawWaterFlowStreaks() {
 }
 
 function drawWater() {
-  const target = state.zone === "river" ? 1 : 0;
+  const target = zoneBasin(state.zone) === "river" ? 1 : 0;
   waterColorT += (target - waterColorT) * 0.03;
   const baseRGB = lerpRGB(ZONE_PALETTE.stream.base, ZONE_PALETTE.river.base, waterColorT);
   const lightRGB = lerpRGB(ZONE_PALETTE.stream.light, ZONE_PALETTE.river.light, waterColorT);
