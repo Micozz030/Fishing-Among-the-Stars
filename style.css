@@ -513,6 +513,7 @@ html, body {
 .guide-item.done { color: #5bd17a; }
 .guide-ready { margin-top: 8px; font-size: 12px; font-weight: bold; color: #ffd86b; }
 .guide-hint { margin-top: 8px; font-size: 11px; opacity: 0.75; line-height: 1.5; }
+.guide-replay-intro-btn { margin-top: 14px; width: 100%; }
 
 /* ====== 背包面板 ====== */
 .bag-box { width: 300px; text-align: left; }
@@ -926,3 +927,128 @@ html, body {
 }
 .reset-danger-btn:hover,
 .reset-danger-btn:active { background: #a02020 !important; }
+
+/* ====== 开场剧情: 视觉小说式对话框 (仅新存档首次进入时播放, 见 js/intro.js) ====== */
+#intro-overlay {
+  position: fixed;
+  inset: 0;
+  max-width: 420px;
+  margin: 0 auto;
+  z-index: 950; /* 高于游戏内一切其它浮层(含钓鱼小游戏的600), 剧情期间独占交互 */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+#intro-overlay.hidden { display: none; }
+
+/* 场景遮罩: phase1(湖边)用近乎不透明的深色完全遮住木筏画面(没有湖边美术, 干脆藏起来);
+   phase2(木排上)转为半透明, 让游戏画布在对话框后方若隐若现地露出来 */
+#intro-scene-tint {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: background-color 0.5s ease;
+}
+#intro-scene-tint.intro-tint-dim { background: #060d16; }
+#intro-scene-tint.intro-tint-normal { background: rgba(6, 13, 22, 0.32); }
+
+/* 传送/穿越瞬间的白闪过渡 */
+#intro-white-flash {
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+}
+#intro-white-flash.flash { animation: introWhiteFlash 0.5s ease; }
+@keyframes introWhiteFlash {
+  0% { opacity: 0; }
+  40% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+#intro-skip-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  min-height: 36px;
+  padding: 6px 14px;
+  background: rgba(10, 22, 34, 0.7);
+  color: #cfe8f0;
+  border: 1.5px solid #2a4a64;
+  border-radius: 18px;
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+#intro-skip-btn:active { background: rgba(10, 22, 34, 0.9); }
+
+/* 对话框: 深色半透明面板, 约屏幕高度30%, 圆角; 整个框都是可点击区域(点击=跳字/下一句) */
+#intro-dialogue-box {
+  position: relative;
+  margin: 0 12px 16px;
+  min-height: 30vh;
+  max-height: 34vh;
+  background: rgba(10, 20, 32, 0.92);
+  border: 2px solid #ffd86b;
+  border-radius: 16px;
+  padding: 16px 16px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+.intro-avatar {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border-radius: 10px;
+  border: 2px solid #ffd86b;
+  background-image: url("assets/maru_expressions.png");
+  background-repeat: no-repeat;
+  background-size: 220.2px 220.2px; /* 原图1254px * (72/410) 的等比缩放 */
+  image-rendering: pixelated;
+}
+.intro-avatar.hidden { display: none; }
+/* 表情精灵表: 3列2行, 每格取左上410x410方形(排除格子底部的说明文字), 见 assets/maru_expressions.png */
+.maru-expr-1 { background-position: 0 0; }
+.maru-expr-2 { background-position: -73.4px 0; }
+.maru-expr-3 { background-position: -146.8px 0; }
+.maru-expr-4 { background-position: 0 -110.11px; }
+.maru-expr-5 { background-position: -73.4px -110.11px; }
+.maru-expr-6 { background-position: -146.8px -110.11px; }
+
+#intro-text-col {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#intro-speaker-name {
+  font-size: 13px;
+  font-weight: bold;
+  color: #ffd86b;
+}
+#intro-speaker-name.hidden { display: none; }
+#intro-text {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: #eef6ff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* 旁白: 无头像无名字标签, 斜体 */
+#intro-dialogue-box.intro-narration #intro-text { font-style: italic; color: #cfe8f0; }
+#intro-tap-hint {
+  align-self: flex-end;
+  font-size: 11px;
+  color: #9fc3d6;
+  opacity: 0.7;
+  animation: introTapHintPulse 1.4s ease-in-out infinite;
+}
+@keyframes introTapHintPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.85; }
+}

@@ -45,6 +45,21 @@
   <div id="achievement-toast-layer"></div>
   <div id="legendary-flash"></div>
 
+  <!-- 开场剧情: 视觉小说式对话框, 仅新存档首次进入播放 (见 js/intro.js) -->
+  <div id="intro-overlay" class="hidden">
+    <div id="intro-scene-tint" class="intro-tint-dim"></div>
+    <div id="intro-white-flash"></div>
+    <button id="intro-skip-btn">跳过 ▸</button>
+    <div id="intro-dialogue-box">
+      <div id="intro-avatar" class="intro-avatar hidden"></div>
+      <div id="intro-text-col">
+        <div id="intro-speaker-name" class="hidden"></div>
+        <div id="intro-text"></div>
+        <div id="intro-tap-hint">轻触继续</div>
+      </div>
+    </div>
+  </div>
+
   <div id="panel">
     <!-- 资源速览条: 8个高频资源的紧凑图标+数字, 点击任意处打开背包查看完整库存 -->
     <div id="resource-strip-wrap">
@@ -131,6 +146,7 @@
       <h2>📋 任务指引</h2>
       <div class="chest-box-scroll">
         <div id="guide-content"></div>
+        <button id="btn-replay-intro" class="big-btn secondary guide-replay-intro-btn">🎬 重看开场</button>
       </div>
     </div>
   </div>

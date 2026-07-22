@@ -28,9 +28,9 @@ const PX = 4; // 基础像素单元
 
 // 溪流/河流背景图 (静态底图, 含石头/小岛等装饰)
 const streamBgImg = new Image();
-streamBgImg.src = "bg_stream.png";
+streamBgImg.src = "assets/bg_stream.png";
 const riverBgImg = new Image();
-riverBgImg.src = "bg_river.png";
+riverBgImg.src = "assets/bg_river.png";
 
 // 宠物动画状态 (临时, 不持久化)
 let petActionUntil = 0;

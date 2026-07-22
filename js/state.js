@@ -26,6 +26,9 @@ export const state = {
   character: null,             // "female" | "male", 首次开局选择
   mirrorUnlocked: false,       // 奇幻镜·千变万化 是否解锁
 
+  // ---- 开场剧情 ----
+  introSeen: false,            // 开场剧情是否已经播放过 (仅新存档触发一次, 见 js/intro.js), 永不重复自动播放
+
   // ---- 商店/货币 ----
   gold: 0,
   shopOwned: [],                // 已购买的商店道具 id 列表
@@ -174,6 +177,9 @@ export function migrate(data, validPetTypes) {
 
   state.character = data.character || null;
   state.mirrorUnlocked = !!data.mirrorUnlocked;
+  // 老存档没有这个字段: 视为"已经看过", 避免老玩家读档时突然被拉去重播开场剧情。
+  // 真正的"从未见过开场"只发生在 load() 里 !raw 的全新存档分支(那里保留字面量默认值 false)。
+  state.introSeen = data.introSeen !== undefined ? !!data.introSeen : true;
   state.gold = data.gold || 0;
   state.shopOwned = data.shopOwned || [];
   state.bottlesSeen = data.bottlesSeen || [];

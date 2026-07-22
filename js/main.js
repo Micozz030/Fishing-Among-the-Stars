@@ -21,6 +21,7 @@ import {
   handleOnboardingClick, onboardingStep, isPetHit,
 } from "./render.js";
 import { initAudioOnGesture, isMuted, toggleMute } from "./audio.js";
+import { startIntro } from "./intro.js";
 
 // ====== 初始化 ======
 load(PET_TYPES);
@@ -146,7 +147,20 @@ document.getElementById("save-import-confirm").onclick = () => {
 document.getElementById("event-close").onclick = () => {
   document.getElementById("event-modal").classList.add("hidden");
 };
-startOnboardingIfNeeded();
+
+// 开场剧情: 只有"从未见过"(真正的全新存档)才会自动播放一次, 播完/跳过后再走原有的角色/宠物选择;
+// 老存档(state.introSeen 在迁移时已被视为true, 见 state.js migrate())直接进入原有流程。
+if (!state.introSeen) {
+  startIntro({ grantOnComplete: true, onComplete: startOnboardingIfNeeded });
+} else {
+  startOnboardingIfNeeded();
+}
+
+// 「指引」面板里的"重看开场": 重放剧情但不再重复发放行囊, 播完/跳过后只是关掉浮层, 不影响当前游戏状态
+document.getElementById("btn-replay-intro").onclick = () => {
+  document.getElementById("guide-modal").classList.add("hidden");
+  startIntro({ grantOnComplete: false });
+};
 
 // ====== 核心操作区: 钓鱼/工坊 绑定 ======
 document.getElementById("btn-fish-cast").onclick = () => doFishing(selectedBait);
