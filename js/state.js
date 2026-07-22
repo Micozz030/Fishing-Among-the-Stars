@@ -12,7 +12,7 @@
 // "从 state 派生只读值"的函数 (不做任何 DOM 操作, 不触发任何一次性副作用), 被 render.js/actions.js/
 // systems.js/ui.js 广泛读取, 同样为了避免循环依赖统一放在这里。
 
-import { CONFIG, SAVE_KEY, COSTUME_SAVE_KEY, ICONS } from "./config.js";
+import { CONFIG, SAVE_KEY, COSTUME_SAVE_KEY, ICONS, GAME_STORAGE_KEYS } from "./config.js";
 
 // 当前存档结构版本号。Stage 4 新增: 配合 migrate() 实现"旧存档永远能升级到当前形状, 绝不丢进度"。
 export const SAVE_VERSION = 3;
@@ -237,9 +237,12 @@ export function load(validPetTypes) {
 let saveDirty = false;
 let saveFlushTimer = null;
 const SAVE_THROTTLE_MS = 2000;
+// 重置存档期间置true: 让节流定时器/visibilitychange/beforeunload 兜底落盘全部失效,
+// 避免"清空localStorage后, 排队中的旧state又被某个兜底flush重新写回去, 导致要点好几次才能真正重置"的bug。
+let isResetting = false;
 
 function flushSave() {
-  if (!saveDirty) return;
+  if (isResetting || !saveDirty) return;
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
     saveDirty = false;
@@ -250,6 +253,7 @@ function flushSave() {
 }
 
 export function save() {
+  if (isResetting) return;
   saveDirty = true;
   if (!saveFlushTimer) {
     saveFlushTimer = setTimeout(flushSave, SAVE_THROTTLE_MS);
@@ -258,6 +262,7 @@ export function save() {
 
 // 立即强制落盘 (跳过节流), 供存档导出等需要拿到"当前最新状态"的场景使用。
 export function saveNow() {
+  if (isResetting) return;
   saveDirty = true;
   flushSave();
 }
@@ -270,6 +275,23 @@ if (typeof document !== "undefined") {
 }
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", flushSave);
+}
+
+// ====== 重置存档: 彻底清空并立即刷新页面, 期间禁止任何落盘 ======
+// 先置 isResetting=true(让任何排队中/兜底触发的 flushSave 全部失效), 再清空计时器和脏标记本身,
+// 最后清掉 localStorage 并刷新页面 —— 三步顺序保证不会出现"清空后又被写回"的竞态。
+export function hardReset() {
+  isResetting = true;
+  if (saveFlushTimer) { clearTimeout(saveFlushTimer); saveFlushTimer = null; }
+  saveDirty = false;
+  try {
+    GAME_STORAGE_KEYS.forEach(k => localStorage.removeItem(k));
+    localStorage.removeItem(SAVE_KEY + "_backup");
+    localStorage.removeItem(SAVE_KEY + "_pre_import");
+  } catch (e) {
+    console.warn("清空存档失败", e);
+  }
+  location.reload();
 }
 
 // ====== 存档导出/导入 (文本形式, 供玩家手动备份/跨设备转移) ======

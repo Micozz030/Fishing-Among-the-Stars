@@ -1,11 +1,10 @@
 // ====== main.js: 启动引导 + 单一游戏循环 + 输入绑定 ======
 // 这是唯一允许 import 全部其它模块的文件。
 
-import { GAME_STORAGE_KEYS } from "./config.js";
 import { PET_TYPES } from "./data.js";
 import {
   state, load, loadCostume, canvas, zoneTotalSlots,
-  exportSaveString, importSaveString, toast,
+  exportSaveString, importSaveString, toast, hardReset,
 } from "./state.js";
 import {
   doFishLoot, doRummage, doPetInteract, wirePetAnimation,
@@ -226,13 +225,14 @@ function loop(ts) {
 requestAnimationFrame(loop);
 
 // ====== 重置存档 ======
+// 三个按钮都用 .onclick = 赋值(而非 addEventListener)在模块顶层绑定一次, 整个页面生命周期只执行一次这段代码
+// (不在任何会被重复调用的函数/弹窗渲染逻辑里), 因此天然不会出现"重复打开弹窗后触发多次handler"的问题。
 document.getElementById("btn-reset-save").onclick = () => {
   document.getElementById("reset-confirm-modal").classList.remove("hidden");
 };
 document.getElementById("btn-reset-cancel").onclick = () => {
   document.getElementById("reset-confirm-modal").classList.add("hidden");
 };
-document.getElementById("btn-reset-confirm").onclick = () => {
-  GAME_STORAGE_KEYS.forEach(k => localStorage.removeItem(k));
-  location.reload();
-};
+// hardReset() 内部会先禁用所有落盘(节流定时器/visibilitychange/beforeunload 全部失效), 再清空 localStorage
+// 并立即 reload —— 避免"清空后被排队中的旧存档又写回去"的竞态, 一次点击必定生效。
+document.getElementById("btn-reset-confirm").onclick = hardReset;
