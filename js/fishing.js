@@ -11,9 +11,11 @@
 // 模块级"当前回调"闭包变量, 复杂度和出错概率都更高, 故这里选择直接接受这个受控的循环依赖。
 
 import { CONFIG, MINIGAME_CONFIG } from "./config.js";
-import { FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, zoneBasin } from "./data.js";
 import {
-  state, ctx, toast, spendEnergy, spawnFloatingText, flashLegendary, pick, save,
+  FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, RELEASE_COPY, zoneBasin, zonePool, roamingCandidates,
+} from "./data.js";
+import {
+  state, ctx, toast, spendEnergy, spawnFloatingText, flashLegendary, pick, pickWeighted, save,
   efficiency,
 } from "./state.js";
 import { checkFishAchievements } from "./systems.js";
@@ -39,16 +41,45 @@ export let biteAlertStartAt = 0;           // 咬钩预警阶段开始时间戳,
 
 const FISH_ESCAPE_JOKES = ["跑了!手慢了一步", "差一点……", "这条鱼太狡猾了"];
 
-function fishPool(basin, rarity) {
-  return Object.keys(FISH).filter(k => FISH[k].rarity === rarity && FISH[k].zones.includes(basin));
+// 从某流域+稀有度的加权鱼池里抽一条 (当前流域原生种权重2, 更早流域带过来的原生种/同水域遗留鱼种权重1)
+// 池子为空时返回 null (调用方负责降级到"common"兜底, 见 rollFishSpecies)
+function weightedFishPool(zoneKey, rarity) {
+  const entries = zonePool(zoneKey, rarity);
+  if (!entries.length) return null;
+  return pickWeighted(entries.map(e => ({ weight: e.weight, res: e.key })));
 }
 
-// 根据鱼种稀有度+专属体长倍率, 随机生成本次捕获的长度(cm), 保留1位小数
+// 保护动物钓获后: 只记录图鉴, 不进背包/不给鱼资源, 改为放归文案 (见 data.js RELEASE_COPY)
+function grantCatchResource(speciesKey, amount) {
+  if (FISH[speciesKey].protected) {
+    toast(RELEASE_COPY[speciesKey] || "已记录图鉴,随后被放归。");
+  } else {
+    state.res.fish += amount;
+  }
+}
+
+// 漫游稀有鱼: 每次抛竿独立小概率判定 (在正常的稀有度判定之前), 命中则记下具体鱼种, 强制走传说鱼小游戏流程
+let pendingRoamingSpecies = null;
+function rollRoamingSpecies(zoneKey) {
+  const candidates = roamingCandidates(zoneKey);
+  for (const k of candidates) {
+    if (Math.random() < FISH[k].roaming.chance) return k;
+  }
+  return null;
+}
+
+// 根据鱼种专属体长区间(或旧遗留鱼种的稀有度基准×倍率), 随机生成本次捕获的长度(cm), 保留1位小数
 export function rollFishLength(fishKey) {
   const def = FISH[fishKey];
-  const range = CONFIG.FISH_LENGTH_RANGES[def.rarity] || CONFIG.FISH_LENGTH_RANGES.common;
-  const mult = def.lengthMult || 1.0;
-  const raw = (range[0] + Math.random() * (range[1] - range[0])) * mult;
+  let range;
+  if (def.lengthRange) {
+    range = def.lengthRange;
+  } else {
+    const base = CONFIG.FISH_LENGTH_RANGES[def.rarity] || CONFIG.FISH_LENGTH_RANGES.common;
+    const mult = def.lengthMult || 1.0;
+    range = [base[0] * mult, base[1] * mult];
+  }
+  const raw = range[0] + Math.random() * (range[1] - range[0]);
   return Math.round(raw * 10) / 10;
 }
 
@@ -87,6 +118,12 @@ export function registerCatch(fishKey, isExtra, length) {
 
 // 根据当前流域+词条+技能决定本次钓上的鱼种
 export function rollFishSpecies(forceTier) {
+  // 漫游稀有鱼命中: enterFishBitePhase 里已经把 tier 强制设成了 legendary, 这里直接消费掉待定鱼种, 不再走常规池
+  if (pendingRoamingSpecies) {
+    const k = pendingRoamingSpecies;
+    pendingRoamingSpecies = null;
+    return k;
+  }
   const basin = zoneBasin(state.zone);
   const legendaryChance = 0.005;
   let tier = forceTier;
@@ -99,9 +136,9 @@ export function rollFishSpecies(forceTier) {
       tier = "common";
     }
   }
-  let pool = fishPool(basin, tier);
-  if (!pool.length) pool = fishPool(basin, "common");
-  return pick(pool);
+  let key = weightedFishPool(state.zone, tier);
+  if (!key) key = weightedFishPool(state.zone, "common");
+  return key;
 }
 
 // ====== 钓鱼系统 (动画状态机, 消耗精力3) ======
@@ -190,6 +227,14 @@ function enterFishWaitPhase() {
 // 普通鱼: 沿用原有"抛线->等待->咬钩(0.8s窗口, 点击拉线)->收线"流程, 无小游戏
 // 稀有/传说鱼: 先经过一小段"咬钩预警"缓冲, 再进入精准小游戏 (见 startBiteAlert / startMinigame)
 function enterFishBitePhase() {
+  // 漫游稀有鱼: 独立小概率判定, 优先于常规稀有度判定; 命中则强制走传说鱼的咬钩预警+小游戏流程
+  const roamingKey = rollRoamingSpecies(state.zone);
+  if (roamingKey) {
+    pendingRoamingSpecies = roamingKey;
+    fishingBiteTier = "legendary";
+    startBiteAlert("legendary");
+    return;
+  }
   fishingBiteTier = rollFishTierWithBait(fishingBaitKey);
   if (fishingBiteTier !== "common") {
     startBiteAlert(fishingBiteTier);
@@ -253,7 +298,7 @@ function resolveFishCatch() {
     const length = rollFishLength(speciesKey);
     registerCatch(speciesKey, false, length);
     const gain = 1 + (Math.random() < 0.25 ? 1 : 0);
-    state.res.fish += gain;
+    grantCatchResource(speciesKey, gain);
     spawnFloatingText(`🐟+${gain}`);
     checkFishAchievements(speciesKey, true);
 
@@ -262,7 +307,7 @@ function resolveFishCatch() {
       const extraKey = rollFishSpecies("common");
       const extraLen = rollFishLength(extraKey);
       registerCatch(extraKey, true, extraLen);
-      state.res.fish += 1;
+      grantCatchResource(extraKey, 1);
       toast(`磁力鱼钩还多带上来一条 ${FISH[extraKey].icon}${FISH[extraKey].name}!`);
     }
 
@@ -271,7 +316,7 @@ function resolveFishCatch() {
       const bonusKey = rollFishSpecies("rare");
       const bonusLen = rollFishLength(bonusKey);
       registerCatch(bonusKey, true, bonusLen);
-      state.res.fish += 1;
+      grantCatchResource(bonusKey, 1);
       toast(`精准直觉发动!额外获得 ${FISH[bonusKey].icon}${FISH[bonusKey].name} (${bonusLen.toFixed(1)}cm)!`);
     }
   } else {
@@ -543,7 +588,7 @@ function finalizeMinigameCatch(success) {
     const length = rollFishLength(speciesKey);
     registerCatch(speciesKey, false, length);
     const gain = 1 + (Math.random() < 0.25 ? 1 : 0);
-    state.res.fish += gain;
+    grantCatchResource(speciesKey, gain);
     spawnFloatingText(`🐟+${gain}`);
     checkFishAchievements(speciesKey, true);
     showShareButton(speciesKey, length, tier);
@@ -590,6 +635,7 @@ function removeShareButton() {
 
 // 根据体长匹配一个日常物品作比例参照, 增强分享卡的"炫耀感"
 function lengthComparisonLabel(cm) {
+  if (cm < 5) return "一枚硬币";
   if (cm < 20) return "一支圆珠笔";
   if (cm < 50) return "一把雨伞";
   if (cm < 90) return "一把吉他";

@@ -595,12 +595,28 @@ html, body {
 
 /* ====== 图鉴 ====== */
 .bestiary-box { width: 320px; max-height: 80vh; overflow-y: auto; }
-#bestiary-grid {
+#bestiary-grid { margin: 12px 0; }
+.bestiary-overall-progress {
+  font-size: 12px;
+  color: #ffd86b;
+  font-weight: bold;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.bestiary-section-heading {
+  font-size: 12px;
+  font-weight: bold;
+  color: #eef6ff;
+  margin: 14px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #2a4a64;
+}
+.bestiary-section-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin: 12px 0;
 }
+.protected-badge { font-size: 10px; margin-left: 2px; cursor: help; }
 .fish-card {
   background: #0e2030;
   border: 2px solid #2a4a64;

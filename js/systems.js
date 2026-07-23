@@ -9,7 +9,7 @@
 import { CONFIG, BOTTLE_REST_X, ICONS } from "./config.js";
 import {
   BLUEPRINTS, PET_TYPES, LOOT_TABLE_STONE, LOOT_TABLE_IRON, FISH, BUILDS,
-  ZONES, zoneDef, zoneBasin, zoneCommonSpecies,
+  ZONES, zoneDef, zoneBasin, zoneCommonSpecies, zonePool, RELEASE_COPY,
 } from "./data.js";
 import {
   state, ctx, toast, addRes, resLine, pick, pickWeighted, save,
@@ -38,8 +38,11 @@ function applyTempHit(mod, durationMs) {
   state.tempHitModExpire = Date.now() + durationMs;
 }
 
-function fishPool(basin, rarity) {
-  return Object.keys(FISH).filter(k => FISH[k].rarity === rarity && FISH[k].zones.includes(basin));
+// 从某流域+稀有度的加权鱼池里抽一条 (与 fishing.js 的 weightedFishPool 同一套权重规则), 池空则返回 null
+function weightedFishPool(zoneKey, rarity) {
+  const entries = zonePool(zoneKey, rarity);
+  if (!entries.length) return null;
+  return pickWeighted(entries.map(e => ({ weight: e.weight, res: e.key })));
 }
 
 // ====== 流域解锁条件 (数据驱动, 实时按 ZONES[].unlock 求值) ======
@@ -122,7 +125,20 @@ const EVENTS_RIVER = [
     desc: "一艘小商船缓缓驶过,船家朝你打招呼。",
     options: [
       { label: "A. 挥手求助 (获得随机食物x2)", cls: "", effect: () => { for (let i = 0; i < 2; i++) { const f = Math.random() < 0.5 ? "bread" : "spam"; state.res[f] += 1; } toast("商船送了你一些食物!"); } },
-      { label: "B. 悄悄跟上 (30%概率钓到河流稀有鱼)", cls: "opt-b", effect: () => { if (Math.random() < 0.3) { const k = pick(fishPool("river", "rare")); registerCatch(k); state.res.fish += 1; } else { toast("跟丢了,什么都没发生"); } } },
+      { label: "B. 悄悄跟上 (30%概率钓到河流稀有鱼)", cls: "opt-b", effect: () => {
+        if (Math.random() < 0.3) {
+          const k = weightedFishPool(state.zone, "rare");
+          if (k) {
+            registerCatch(k);
+            if (FISH[k].protected) toast(RELEASE_COPY[k] || "已记录图鉴,随后被放归。");
+            else state.res.fish += 1;
+          } else {
+            toast("跟丢了,什么都没发生");
+          }
+        } else {
+          toast("跟丢了,什么都没发生");
+        }
+      } },
     ],
   },
   {

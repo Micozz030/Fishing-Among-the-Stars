@@ -16,7 +16,7 @@ import {
   FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, BLUEPRINTS, BP_CATEGORY_LABEL, RAFT_PARTS,
   BUILDS, SKILL_DEFS, ACCESSORY_DEFS, COSTUME_OPTIONS, SHOP_HAIR_EXTRA, SHOP_ITEMS,
   FOOD_DEFS, RES_LABEL, BAG_CATEGORY_LABEL, BAG_CATEGORY_ORDER,
-  ZONES, zoneDef, zoneSlotConfig,
+  ZONES, zoneDef, zoneSlotConfig, zoneCommonSpecies,
 } from "./data.js";
 import {
   state, costumeState, saveCostume, save, canAfford, ownsBlueprint,
@@ -63,40 +63,84 @@ function refreshOpenWorkshopPanels() {
 }
 
 // ====== 图鉴面板 ======
+// 某条鱼归属的图鉴分区: 原生种归自己的 nativeZone; 漫游稀有鱼单独归到"流浪的旅者"; 没有 nativeZone 的
+// 遗留鱼种(重构前就有, 没有明显新原生种与之重复的那几条)按 basin 归到该水域的第一个流域分区。
+function bestiarySectionOf(fishKey) {
+  const def = FISH[fishKey];
+  if (def.roaming) return "__roaming__";
+  if (def.nativeZone) return def.nativeZone;
+  const basin = (def.zones && def.zones.includes("stream")) ? "stream" : "river";
+  const firstZoneOfBasin = ZONES.find(z => z.basin === basin);
+  return firstZoneOfBasin ? firstZoneOfBasin.key : ZONES[0].key;
+}
+
 export function renderBestiary() {
   const grid = document.getElementById("bestiary-grid");
   grid.innerHTML = "";
-  Object.keys(FISH).forEach(key => {
-    const def = FISH[key];
-    const entry = state.bestiary[key];
-    const card = document.createElement("div");
-    card.className = "fish-card" + (entry ? "" : " unknown");
 
-    let iconHtml;
-    if (entry && def.pixel) {
-      iconHtml = `<canvas width="8" height="6" data-fish="${key}"></canvas>`;
-    } else if (entry) {
-      iconHtml = def.icon;
+  const allKeys = Object.keys(FISH);
+  const totalCaught = allKeys.filter(k => state.bestiary[k]).length;
+  const overallEl = document.createElement("div");
+  overallEl.className = "bestiary-overall-progress";
+  overallEl.textContent = `全部图鉴进度: ${totalCaught}/${allKeys.length}`;
+  grid.appendChild(overallEl);
+
+  const sectionKeys = ZONES.map(z => z.key).concat(["__roaming__"]);
+  sectionKeys.forEach(sectionKey => {
+    const keysInSection = allKeys.filter(k => bestiarySectionOf(k) === sectionKey);
+    if (!keysInSection.length) return;
+    // 原生种排在前面, 遗留鱼种排在后面(同一分区内)
+    keysInSection.sort((a, b) => (FISH[a].nativeZone === sectionKey ? 0 : 1) - (FISH[b].nativeZone === sectionKey ? 0 : 1));
+
+    const heading = document.createElement("div");
+    heading.className = "bestiary-section-heading";
+    if (sectionKey === "__roaming__") {
+      heading.textContent = "🌊 流浪的旅者";
     } else {
-      iconHtml = "❓";
+      const z = zoneDef(sectionKey);
+      const natives = zoneCommonSpecies(sectionKey); // 只统计该流域"原生"的普通种, 作为这个分区自己的完成度
+      const nativeCaught = natives.filter(k => state.bestiary[k]).length;
+      heading.textContent = natives.length ? `📍 ${z.name} (原生图鉴 ${nativeCaught}/${natives.length})` : `📍 ${z.name}`;
     }
+    grid.appendChild(heading);
 
-    // 🏆 皇冠徽章已移除(所有稀有度); 普通鱼只显示体长, 稀有/传说额外附上破纪录日期
-    let recordHtml = "";
-    if (entry && entry.record) {
-      const dateStr = new Date(entry.record.caughtAt).toISOString().slice(0, 10);
-      const dateTag = def.rarity !== "common" ? ` · ${dateStr}` : "";
-      recordHtml = `<div class="fish-record">最长纪录: ${entry.record.length.toFixed(1)}cm${dateTag}</div>`;
-    }
+    const sectionGrid = document.createElement("div");
+    sectionGrid.className = "bestiary-section-grid";
+    keysInSection.forEach(key => {
+      const def = FISH[key];
+      const entry = state.bestiary[key];
+      const card = document.createElement("div");
+      card.className = "fish-card" + (entry ? "" : " unknown");
 
-    card.innerHTML = `
-      <div class="fish-icon">${iconHtml}</div>
-      <div class="fish-name">${entry ? def.name : "???"}</div>
-      <div class="rarity-tag rarity-${def.rarity}">${RARITY_LABEL[def.rarity]}</div>
-      <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${zoneDef(entry.firstZone).name}` : "尚未发现"}</div>
-      ${recordHtml}
-    `;
-    grid.appendChild(card);
+      let iconHtml;
+      if (entry && def.pixel) {
+        iconHtml = `<canvas width="8" height="6" data-fish="${key}"></canvas>`;
+      } else if (entry) {
+        iconHtml = def.icon;
+      } else {
+        iconHtml = "❓";
+      }
+
+      // 🏆 皇冠徽章已移除(所有稀有度); 普通鱼只显示体长, 稀有/传说额外附上破纪录日期
+      let recordHtml = "";
+      if (entry && entry.record) {
+        const dateStr = new Date(entry.record.caughtAt).toISOString().slice(0, 10);
+        const dateTag = def.rarity !== "common" ? ` · ${dateStr}` : "";
+        recordHtml = `<div class="fish-record">最长纪录: ${entry.record.length.toFixed(1)}cm${dateTag}</div>`;
+      }
+
+      const protectedBadge = def.protected ? `<span class="protected-badge" title="保护动物·钓获后放归">🛡️</span>` : "";
+
+      card.innerHTML = `
+        <div class="fish-icon">${iconHtml}</div>
+        <div class="fish-name">${entry ? def.name : "???"}${protectedBadge}</div>
+        <div class="rarity-tag rarity-${def.rarity}">${RARITY_LABEL[def.rarity]}</div>
+        <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${zoneDef(entry.firstZone).name}` : "尚未发现"}</div>
+        ${recordHtml}
+      `;
+      sectionGrid.appendChild(card);
+    });
+    grid.appendChild(sectionGrid);
   });
 
   // 像素图标绘制 (已捕获的稀有/传说鱼)
