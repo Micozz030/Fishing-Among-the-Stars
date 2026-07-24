@@ -6,7 +6,7 @@
 
 import { CONFIG, MINIGAME_CONFIG } from "./config.js";
 import {
-  COSTUME_OPTIONS, CHAR_FIXED_COLORS, PET_TYPES, zoneBasin,
+  COSTUME_OPTIONS, CHAR_FIXED_COLORS, PET_TYPES, ZONES, zoneBasin,
 } from "./data.js";
 import {
   state, ctx, canvas, costumeState, zoneTotalSlots,
@@ -26,11 +26,65 @@ import { renderFishRow } from "./ui.js";
 let waveOffset = 0;
 const PX = 4; // 基础像素单元
 
-// 溪流/河流背景图 (静态底图, 含石头/小岛等装饰)
-const streamBgImg = new Image();
-streamBgImg.src = "assets/bg_stream.png";
-const riverBgImg = new Image();
-riverBgImg.src = "assets/bg_river.png";
+// ====== 每流域背景图 (Step2: 5张独立底图, 按 ZONES[].bg 预加载; 加载完成前/失败时回退到纯色水面) ======
+// { zoneKey: HTMLImageElement }, 在图片真正 load 完成前 img.complete 仍为true但 naturalWidth 为0,
+// drawZoneBackground() 靠这个天然判断"是否已经可以绘制", 不需要额外的 loaded 标记位。
+const zoneBgImages = {};
+ZONES.forEach(z => {
+  const img = new Image();
+  img.onerror = () => console.warn(`[背景图] 加载失败, 该流域将回退到纯色水面: ${z.bg}`);
+  img.src = z.bg;
+  zoneBgImages[z.key] = img;
+});
+// 启动时并发预加载(不阻塞游戏, 只用于在控制台汇总提示——真正的加载已经由上面 new Image().src 触发了)。
+Promise.all(ZONES.map(z => new Promise(resolve => {
+  const img = zoneBgImages[z.key];
+  if (img.complete && img.naturalWidth > 0) { resolve(); return; }
+  img.addEventListener("load", resolve, { once: true });
+  img.addEventListener("error", resolve, { once: true });
+}))).catch(() => { /* 单张失败已经在各自 onerror 里警告过了, 这里不需要额外处理 */ });
+
+function isBgImgReady(img) { return !!img && img.complete && img.naturalWidth > 0; }
+
+// cover 铺满式绘制: 保持宽高比, 居中裁剪溢出部分, 永不拉伸/留白 (等价 CSS background-size: cover)
+function drawImageCover(img, dx, dy, dw, dh, alpha) {
+  const scale = Math.max(dw / img.naturalWidth, dh / img.naturalHeight);
+  const sw = dw / scale, sh = dh / scale;
+  const sx = (img.naturalWidth - sw) / 2, sy = (img.naturalHeight - sh) / 2;
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+  ctx.globalAlpha = 1;
+}
+
+// 流域切换的背景图交叉淡入淡出 (~0.6s); 只有当新旧两张图都已经加载完成时才做真正的淡出/淡入,
+// 否则直接切换(跳过淡出), 避免对着一张还没加载出来的图做无意义的alpha渐变。
+const BG_FADE_MS = 600;
+let bgFadeFromKey = null;
+let bgFadeToKey = null;
+let bgFadeStartAt = 0;
+let lastSeenZone = null;
+
+function drawZoneBackground() {
+  if (state.zone !== lastSeenZone) {
+    bgFadeFromKey = lastSeenZone;
+    bgFadeToKey = state.zone;
+    bgFadeStartAt = Date.now();
+    lastSeenZone = state.zone;
+  }
+
+  const toImg = zoneBgImages[bgFadeToKey || state.zone];
+  const fromImg = bgFadeFromKey ? zoneBgImages[bgFadeFromKey] : null;
+  const bothReady = fromImg && isBgImgReady(fromImg) && isBgImgReady(toImg);
+  const progress = bothReady ? Math.min(1, (Date.now() - bgFadeStartAt) / BG_FADE_MS) : 1;
+
+  if (bothReady && progress < 1) {
+    drawImageCover(fromImg, 0, 0, 360, 420, 1 - progress);
+    drawImageCover(toImg, 0, 0, 360, 420, progress);
+  } else if (isBgImgReady(toImg)) {
+    drawImageCover(toImg, 0, 0, 360, 420, 1);
+  }
+  // 图片还没加载好: 什么都不画, 底下 drawWater() 已经先铺好的纯色水面继续保持可见, 不会出现空白画面
+}
 
 // 宠物动画状态 (临时, 不持久化)
 let petActionUntil = 0;
@@ -179,23 +233,8 @@ function drawWater() {
     }
   }
 
-  // 溪流/河流背景图 (静态底图, 自带石头/小岛等装饰), 随切换流域的色调过渡交叉淡入淡出
-  if (streamBgImg.complete && streamBgImg.naturalWidth > 0) {
-    const streamAlpha = 1 - waterColorT;
-    if (streamAlpha > 0.02) {
-      ctx.globalAlpha = streamAlpha;
-      ctx.drawImage(streamBgImg, 0, 0, 360, 420);
-      ctx.globalAlpha = 1;
-    }
-  }
-  if (riverBgImg.complete && riverBgImg.naturalWidth > 0) {
-    const riverAlpha = waterColorT;
-    if (riverAlpha > 0.02) {
-      ctx.globalAlpha = riverAlpha;
-      ctx.drawImage(riverBgImg, 0, 0, 360, 420);
-      ctx.globalAlpha = 1;
-    }
-  }
+  // 当前流域背景图 (静态底图, 自带石头/小岛等装饰), 切换流域时与上一张图交叉淡入淡出 (见 drawZoneBackground)
+  drawZoneBackground();
 
   // 上层: 动态水流光影 (斜向流光带 + 细碎波光点)
   drawWaterFlowStreaks();

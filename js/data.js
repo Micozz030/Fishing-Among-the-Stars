@@ -194,6 +194,8 @@ export const ZONES = [
   { key: "river_mid", name: "沉锚深澜", basin: "river", raftCap: 20, raftStep: 2, unlock: { type: "bestiary_commons", ofZone: "river_entrance" } },
   { key: "river_core", name: "河神旧座", basin: "river", raftCap: 25, raftStep: 3, unlock: { type: "bestiary_commons_and_build", ofZone: "river_mid", buildKey: "anchor" } },
 ];
+// 每个流域的背景图路径, 由 key 统一派生 (assets/bg_{key}.png), 不写任何逐流域的硬编码分支。
+ZONES.forEach(z => { z.bg = `assets/bg_${z.key}.png`; });
 export function zoneDef(zoneKey) {
   // 兼容极旧存档里 bestiary[].firstZone 仍是重构前的 "stream"/"river" 字面量(未随 migrate() 一起改写)
   if (zoneKey === "stream") zoneKey = "stream_clear";
