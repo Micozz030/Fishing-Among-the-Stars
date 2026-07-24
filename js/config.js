@@ -100,3 +100,14 @@ export const BOTTLE_REST_X = 280;
 
 // ====== 存档重置涉及的 localStorage key 列表 ======
 export const GAME_STORAGE_KEYS = [SAVE_KEY, COSTUME_SAVE_KEY];
+
+// ====== 各流域水流方向 (漂浮杂物/氛围水流沿此方向漂移, 匹配背景美术画出的水流走向) ======
+// dx/dy: 方向向量(不要求单位长度, render.js 会自动归一化); speed: 每帧位移量(px), 0 表示静止水面。
+// river_core 是"神座静潭", 水面几乎不流动, 漂浮物索性不生成(见 render.js)。
+export const ZONE_FLOW = {
+  stream_clear: { dx: -0.5, dy: 0.85, speed: 0.15 },
+  stream_source: { dx: -0.3, dy: 1.0, speed: 0.25 },
+  river_entrance: { dx: -0.6, dy: 0.8, speed: 0.15 },
+  river_mid: { dx: -0.7, dy: 0.7, speed: 0.15 },
+  river_core: { dx: 0, dy: 0, speed: 0 },
+};

@@ -6,7 +6,7 @@
 
 import { CONFIG, MINIGAME_CONFIG } from "./config.js";
 import {
-  COSTUME_OPTIONS, CHAR_FIXED_COLORS, PET_TYPES, ZONES, zoneBasin,
+  COSTUME_OPTIONS, CHAR_FIXED_COLORS, PET_TYPES, ZONES, zoneBasin, zoneDef,
 } from "./data.js";
 import {
   state, ctx, canvas, costumeState, zoneTotalSlots,
@@ -99,11 +99,20 @@ const DEBRIS_SPRITES = [
   { grid: ["WwW", "www", "WwW"], colors: { W: "#caa86b", w: "#8a6a3f" } },      // 浮木块
   { grid: [".bb", "bbb", "bb."], colors: { b: "#cfe8f0" } },                   // 塑料瓶碎片
 ];
+// 漂浮物沿"当前流域水流方向"移动 (见 data.js ZONES[].flow / config.js ZONE_FLOW), 不再硬编码从右往左。
+// 每个对象用 (along, perp) 两个标量描述位置: along=沿水流方向的位移(出了范围就从上游边缘重新进入),
+// perp=垂直于水流方向的横向偏移(决定它在河道宽度上的位置, 出画布外自动折返), 渲染时再换算回 canvas 的 x/y。
+// wobble 是叠加在 perp 上的小幅正弦摆动, 让运动读起来像"被水带着走", 而不是传送带式的匀速直线。
+const DEBRIS_ALONG_RANGE = 300; // 覆盖 360x420 画布对角线一半左右, 保证任意角度都能贯穿整个画面
+const DEBRIS_PERP_RANGE = 220;
 const debris = [];
 for (let i = 0; i < 6; i++) {
   debris.push({
-    x: Math.random() * 360, y: 60 + Math.random() * 300,
-    speed: 0.12 + Math.random() * 0.15,
+    along: (Math.random() * 2 - 1) * DEBRIS_ALONG_RANGE,
+    perp: (Math.random() * 2 - 1) * DEBRIS_PERP_RANGE,
+    speedMult: 0.75 + Math.random() * 0.5, // 每个对象速度略有差异, 更自然
+    wobbleAmp: 2 + Math.random() * 2.5,
+    wobblePhase: Math.random() * Math.PI * 2,
     sprite: DEBRIS_SPRITES[Math.floor(Math.random() * DEBRIS_SPRITES.length)],
   });
 }
@@ -140,27 +149,29 @@ function lerpRGB(c1, c2, t) {
   ];
 }
 
-// 水面波光点: 固定数量, 沿水流对角方向缓慢漂移, 营造比纯色块更细腻的水流质感
+// 水面波光点 (Step: 背景图已经画出了水流纹理, 这里只保留一层极轻的环境微光作为点缀,
+// 不再叠加整块的斜向流光带——那一层在真实背景图上会显得像"重复的假水纹", 已经移除。
+// 漂移方向改用当前流域的水流向量(river_core 静止时波光点只闪烁不漂移), 不再是写死的对角方向。
 const WATER_SPARKLES = [];
-for (let i = 0; i < 36; i++) {
+for (let i = 0; i < 18; i++) {
   WATER_SPARKLES.push({
     x: Math.random() * 360, y: Math.random() * 420,
-    speed: 0.04 + Math.random() * 0.06,
+    speedMult: 0.5 + Math.random() * 0.6,
     size: Math.random() < 0.3 ? 2 : 1,
     twinklePhase: Math.random() * Math.PI * 2,
   });
 }
-const WATER_FLOW_DIR = { x: -0.6, y: -0.8 }; // 与对角条纹同向缓慢漂移
 
 function drawWaterSparkles() {
+  const flow = currentZoneFlow();
   WATER_SPARKLES.forEach(p => {
-    p.x += WATER_FLOW_DIR.x * p.speed;
-    p.y += WATER_FLOW_DIR.y * p.speed;
+    p.x += flow.ux * flow.speed * p.speedMult;
+    p.y += flow.uy * flow.speed * p.speedMult;
     if (p.x < -4) p.x += 364;
     if (p.x > 364) p.x -= 364;
     if (p.y < -4) p.y += 424;
     if (p.y > 424) p.y -= 424;
-    const twinkle = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(waveOffset * 0.05 + p.twinklePhase));
+    const twinkle = 0.25 + 0.3 * (0.5 + 0.5 * Math.sin(waveOffset * 0.05 + p.twinklePhase));
     ctx.globalAlpha = twinkle;
     ctx.fillStyle = "#eafff8";
     ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
@@ -168,27 +179,12 @@ function drawWaterSparkles() {
   ctx.globalAlpha = 1;
 }
 
-// 斜向流光层: 多条不同速度/透明度的半透明白色光带, 沿30~45度角缓慢平移, 8~12秒一个循环
-const WATER_FLOW_LAYERS = [
-  { angleDeg: 35, period: 28, width: 4, spacing: 140, opacity: 0.06 },
-  { angleDeg: 40, period: 36, width: 3, spacing: 220, opacity: 0.05 },
-];
-
-function drawWaterFlowStreaks() {
-  const t = Date.now() / 1000;
-  ctx.save();
-  ctx.translate(180, 210);
-  WATER_FLOW_LAYERS.forEach(layer => {
-    ctx.save();
-    ctx.rotate((layer.angleDeg * Math.PI) / 180);
-    const offset = ((t % layer.period) / layer.period) * layer.spacing;
-    ctx.fillStyle = `rgba(255,255,255,${layer.opacity})`;
-    for (let x = -700; x < 700; x += layer.spacing) {
-      ctx.fillRect(Math.round(x + offset), -700, layer.width, 1400);
-    }
-    ctx.restore();
-  });
-  ctx.restore();
+// 当前流域的归一化水流方向 + 速度 (dx/dy 不要求是单位向量, 这里统一归一化, 让 speed 的物理含义与角度无关)
+function currentZoneFlow() {
+  const f = zoneDef(state.zone).flow;
+  const mag = Math.hypot(f.dx, f.dy);
+  if (mag < 0.0001) return { ux: 0, uy: 0, speed: 0 };
+  return { ux: f.dx / mag, uy: f.dy / mag, speed: f.speed };
 }
 
 function drawWater() {
@@ -236,8 +232,7 @@ function drawWater() {
   // 当前流域背景图 (静态底图, 自带石头/小岛等装饰), 切换流域时与上一张图交叉淡入淡出 (见 drawZoneBackground)
   drawZoneBackground();
 
-  // 上层: 动态水流光影 (斜向流光带 + 细碎波光点)
-  drawWaterFlowStreaks();
+  // 上层: 极轻的环境波光点缀 (原本还有一层斜向流光带, 和背景图自带的画面水纹重复, 已移除)
   drawWaterSparkles();
 }
 
@@ -801,10 +796,21 @@ export function drawScene() {
 
   drawWater();
 
-  debris.forEach(d => {
-    d.x -= d.speed;
-    if (d.x < -20) d.x = 380;
-    drawPixelGrid(d.sprite.grid, d.sprite.colors, d.x, d.y, 4);
+  // 漂浮物沿当前流域水流方向漂移 (河神旧座静潭 speed=0, 干脆不生成漂浮物, 呼应"静止圣潭"的氛围)
+  const flow = currentZoneFlow();
+  const perpX = -flow.uy, perpY = flow.ux; // 垂直于水流方向的单位向量, 用来做横向分布+摆动
+  if (flow.speed > 0) debris.forEach(d => {
+    d.along += flow.speed * d.speedMult;
+    if (d.along > DEBRIS_ALONG_RANGE) {
+      d.along -= DEBRIS_ALONG_RANGE * 2; // 从上游边缘重新进入(方向由 dx/dy 的符号决定, 不写死左右)
+      d.perp = (Math.random() * 2 - 1) * DEBRIS_PERP_RANGE;
+    }
+    const wobble = Math.sin(waveOffset * 0.06 + d.wobblePhase) * d.wobbleAmp;
+    const perpTotal = d.perp + wobble;
+    const x = 180 + flow.ux * d.along + perpX * perpTotal;
+    const y = 210 + flow.uy * d.along + perpY * perpTotal;
+    if (x < -20 || x > 380 || y < -20 || y > 440) return; // 摆动/透视可能让个别对象暂时落在画布外, 跳过不画
+    drawPixelGrid(d.sprite.grid, d.sprite.colors, x, y, 4);
   });
 
   const raftLayout = drawRaft();

@@ -1,7 +1,7 @@
 // ====== data.js: 静态定义 (鱼类/事件/成就/图纸/商店/文案等), 不依赖 state/actions/ui ======
 // 仅 import config.js (用于 RAFT_PART_COST_MULTIPLIER 等常量), 不做任何 DOM/state 操作
 
-import { CONFIG } from "./config.js";
+import { CONFIG, ZONE_FLOW } from "./config.js";
 
 // ====== 打捞表 (基础资源, 拉钩打捞每次从中抽一种) ======
 export const LOOT_TABLE_STONE = [
@@ -196,6 +196,8 @@ export const ZONES = [
 ];
 // 每个流域的背景图路径, 由 key 统一派生 (assets/bg_{key}.png), 不写任何逐流域的硬编码分支。
 ZONES.forEach(z => { z.bg = `assets/bg_${z.key}.png`; });
+// 每个流域的水流方向 (漂浮杂物沿此漂移, 具体数值见 config.js ZONE_FLOW, 便于统一调优)
+ZONES.forEach(z => { z.flow = ZONE_FLOW[z.key] || { dx: 0, dy: 1, speed: 0.15 }; });
 export function zoneDef(zoneKey) {
   // 兼容极旧存档里 bestiary[].firstZone 仍是重构前的 "stream"/"river" 字面量(未随 migrate() 一起改写)
   if (zoneKey === "stream") zoneKey = "stream_clear";
