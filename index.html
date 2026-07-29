@@ -229,11 +229,20 @@
 
   <!-- 鱼类CG弹窗: 首次捕获"新收录"揭晓 + 图鉴详情, 两者共用同一套布局 (见 js/fishcg.js) -->
   <div id="fishcg-modal" class="hidden">
-    <div class="fishcg-box">
-      <button class="close-btn" id="fishcg-close">✕</button>
-      <div id="fishcg-header" class="fishcg-header"></div>
-      <!-- 立绘舞台: 固定区域 + object-fit:contain, 原图任意长宽比都完整可见(留黑边而非拉伸) -->
-      <div id="fishcg-stage" class="fishcg-stage"></div>
+    <!-- 传说鱼入场时的全屏金光一闪 (仅 rarity=legendary 触发, 0.6s 后自动消失) -->
+    <div id="fishcg-flash" class="fishcg-flash"></div>
+    <!-- data-rarity 由 fishcg.js 按鱼的稀有度写入, 整套配色(边框/光晕/徽章/强调线)都由它驱动, 不做多份弹窗组件 -->
+    <div class="fishcg-box" id="fishcg-box" data-rarity="common">
+      <div class="fishcg-header-bar">
+        <div id="fishcg-header" class="fishcg-header"></div>
+        <button class="fishcg-close" id="fishcg-close">✕</button>
+      </div>
+      <!-- 立绘舞台: 固定区域 + object-fit:contain, 原图任意长宽比都完整可见(留黑边而非拉伸)。
+           "新收录"角标放在 wrap 层而不是 stage 内部 —— stage 的 innerHTML 会被 JS 整体替换掉。 -->
+      <div class="fishcg-stage-wrap">
+        <div id="fishcg-new-badge" class="fishcg-new-badge hidden">✨ 新收录</div>
+        <div id="fishcg-stage" class="fishcg-stage"></div>
+      </div>
       <div class="fishcg-info">
         <div class="fishcg-name-row">
           <span id="fishcg-name" class="fishcg-name"></span>

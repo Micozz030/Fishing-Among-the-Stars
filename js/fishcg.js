@@ -130,7 +130,14 @@ export function onFishCGQueueDrained(cb) { queueDrainedCb = cb; }
 
 function el(id) { return document.getElementById(id); }
 
-// isNewEntry=true 时显示"✨ 新收录!"抬头; 图鉴详情复用同一弹窗, 只是没有这个抬头
+// 首次收录时的抬头文案, 按稀有度递进 (图鉴详情不用这套, 见下方 else 分支)
+const NEW_ENTRY_TITLE = {
+  common: "初次捕获",
+  rare: "✦ 稀有发现!",
+  legendary: "★ 传说现身!!",
+};
+
+// isNewEntry=true 时显示按稀有度递进的揭晓抬头 + 左上角"新收录"角标; 图鉴详情复用同一弹窗, 只是换个抬头
 async function openFishCGModal(key, isNewEntry) {
   const def = FISH[key];
   if (!def) return;
@@ -139,8 +146,13 @@ async function openFishCGModal(key, isNewEntry) {
   const modal = el("fishcg-modal");
   const stage = el("fishcg-stage");
 
-  el("fishcg-header").textContent = isNewEntry ? "✨ 新收录!" : "📖 图鉴详情";
-  el("fishcg-header").classList.toggle("is-new", !!isNewEntry);
+  // 弹窗整体配色(边框/光晕/徽章/强调线)全部由这个 data-rarity 驱动, 见 style.css 的 .fishcg-box[data-rarity]
+  el("fishcg-box").dataset.rarity = def.rarity;
+
+  el("fishcg-header").textContent = isNewEntry
+    ? (NEW_ENTRY_TITLE[def.rarity] || NEW_ENTRY_TITLE.common)
+    : "📖 图鉴详情";
+  el("fishcg-new-badge").classList.toggle("hidden", !isNewEntry);
   el("fishcg-name").textContent = def.name;
 
   const rarityEl = el("fishcg-rarity");
@@ -163,7 +175,7 @@ async function openFishCGModal(key, isNewEntry) {
   const rec = bEntry && bEntry.record;
   if (rec) {
     const dateTag = def.rarity !== "common" ? ` · ${new Date(rec.caughtAt).toISOString().slice(0, 10)}` : "";
-    recEl.textContent = `最长纪录: ${rec.length.toFixed(1)}cm${dateTag}`;
+    recEl.textContent = `📏 最长纪录 ${rec.length.toFixed(1)}cm${dateTag}`;
     recEl.classList.remove("hidden");
   } else {
     recEl.classList.add("hidden");
@@ -174,6 +186,14 @@ async function openFishCGModal(key, isNewEntry) {
   paintFallbackPixels(stage);
   modal.classList.remove("hidden");
   if (isNewEntry) sfx.achievement();
+
+  // 传说鱼入场: 额外来一下全屏金光 (先移除再强制重排, 保证连续弹多条传说鱼时每次都能重新播放)
+  const flashEl = el("fishcg-flash");
+  flashEl.classList.remove("flash");
+  if (def.rarity === "legendary") {
+    void flashEl.offsetWidth;
+    flashEl.classList.add("flash");
+  }
 
   const entry = await loadFishCG(key);
   // 加载期间玩家可能已经关掉弹窗/又打开了别的鱼, 这时不要把图塞进去

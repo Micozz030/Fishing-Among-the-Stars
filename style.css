@@ -1225,79 +1225,189 @@ html, body {
   cursor: pointer;
 }
 #fishcg-modal.hidden { display: none; }
+
+/* 传说鱼入场的全屏金光一闪 (由 fishcg.js 加 .flash 触发一次, 动画结束即隐形) */
+.fishcg-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  background: radial-gradient(circle, #fff7d0 0%, #ffd86b 45%, transparent 78%);
+}
+.fishcg-flash.flash { animation: fishcgGoldFlash 0.6s ease-out; }
+@keyframes fishcgGoldFlash {
+  0% { opacity: 0; }
+  35% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+
+/* 整套配色由 .fishcg-box[data-rarity] 上的 CSS 变量驱动 —— 弹窗只有一份, 换稀有度只换变量。
+   --fc-line   : 主边框/分隔线   --fc-accent: 强调色(标题/徽章文字/描述左侧竖线)
+   --fc-glow   : 立绘背后的光晕  --fc-badge : 稀有度徽章底色 */
 .fishcg-box {
+  --fc-line: #2a5c7a;
+  --fc-accent: #7fc4e8;
+  --fc-glow: rgba(74, 158, 196, 0.30);
+  --fc-badge: rgba(42, 92, 122, 0.55);
+
   position: relative;
   width: min(92vw, 380px);
   max-height: 92vh;
   overflow-y: auto;
-  background: #16324a;
-  border: 2px solid #ffd86b;
-  border-radius: 16px;
-  padding: 16px 16px 12px;
+  background: #0d1f2d;
+  border: 2px solid var(--fc-line);
+  border-radius: 14px;
+  padding: 0 0 12px;
   text-align: center;
-  animation: fishcgPopIn 0.3s ease;
+  animation: fishcgSlideUp 0.3s ease-out;
 }
-/* 立绘轻微放大入场 0.95 -> 1 */
-@keyframes fishcgPopIn {
-  0% { opacity: 0; transform: scale(0.95); }
-  100% { opacity: 1; transform: scale(1); }
+.fishcg-box[data-rarity="rare"] {
+  --fc-line: #7a3a9a;
+  --fc-accent: #d9a3f5;
+  --fc-glow: rgba(150, 80, 200, 0.32);
+  --fc-badge: rgba(122, 58, 154, 0.55);
+}
+.fishcg-box[data-rarity="legendary"] {
+  --fc-line: #9a7a1a;
+  --fc-accent: #ffd86b;
+  --fc-glow: rgba(255, 200, 80, 0.30);
+  --fc-badge: rgba(154, 122, 26, 0.55);
+}
+/* 从下方滑入 + 淡入 */
+@keyframes fishcgSlideUp {
+  0% { opacity: 0; transform: translateY(20px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* 抬头栏: 比弹窗主体再深一档, 底部一条细分隔线 */
+.fishcg-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 12px 10px 14px;
+  background: #091823;
+  border-bottom: 1px solid var(--fc-line);
+  border-radius: 12px 12px 0 0;
 }
 .fishcg-header {
-  font-size: 15px;
+  font-size: 14.5px;
   font-weight: bold;
-  color: #cfe8f0;
-  margin-bottom: 10px;
-  padding-right: 34px;
+  color: var(--fc-accent);
+  text-align: left;
+  line-height: 1.3;
 }
-.fishcg-header.is-new { color: #ffd86b; }
+/* 关闭按钮: 小圆形, 描边/文字跟随稀有度主题色 */
+.fishcg-close {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--fc-line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--fc-accent);
+  font-size: 12px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 0;
+  touch-action: manipulation;
+}
 
-/* 立绘舞台: 固定取景区 (最大 80vw × 55vh), 深色底板 + 圆角细边, 让 contain 产生的留白看起来是有意为之。
+/* 立绘舞台: 固定取景区 (最大 80vw × 55vh)。深色径向渐变 + 鱼身后一团柔光椭圆(::before),
+   取代原来的浅色底板 —— contain 产生的留白融进暗背景里, 不再像"白框"。
    任意长宽比的原图都完整显示 —— 很宽的图上下留白, 很高的图左右留白, 永不拉伸变形。 */
+.fishcg-stage-wrap { position: relative; width: min(80vw, 330px); margin: 12px auto; }
 .fishcg-stage {
-  width: min(80vw, 330px);
+  position: relative;
+  width: 100%;
   height: min(55vh, 330px);
-  margin: 0 auto 12px;
-  background: #0a1622;
-  border: 1px solid #2a4a64;
+  background: radial-gradient(ellipse at 50% 52%, #14293a 0%, #071018 72%);
+  border: 1px solid var(--fc-line);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
 }
+/* 鱼身后的柔光椭圆, 颜色跟随稀有度 */
+.fishcg-stage::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 52%;
+  width: 78%;
+  height: 62%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, var(--fc-glow) 0%, transparent 70%);
+  pointer-events: none;
+}
+/* "新收录"角标: 立绘区左上角 */
+.fishcg-new-badge {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: bold;
+  color: var(--fc-accent);
+  background: var(--fc-badge);
+  border: 1px solid var(--fc-line);
+  border-radius: 6px;
+  padding: 2px 7px;
+  letter-spacing: 0.5px;
+}
+.fishcg-new-badge.hidden { display: none; }
 .fishcg-img {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   object-fit: contain; /* 关键: 完整显示整幅立绘, letterbox 而不是裁剪/拉伸 */
   display: block;
 }
 .fishcg-fallback-pixel {
+  position: relative;
+  z-index: 1;
   image-rendering: pixelated;
   width: 60%;
   height: auto;
   object-fit: contain;
 }
-.fishcg-fallback-emoji { line-height: 1; }
+.fishcg-fallback-emoji { position: relative; z-index: 1; line-height: 1; }
 
-.fishcg-info { text-align: center; }
+.fishcg-info { text-align: left; padding: 0 14px; }
+/* 鱼名左对齐并加大, 稀有度徽章紧随其右 */
 .fishcg-name-row {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   flex-wrap: wrap;
   margin-bottom: 6px;
 }
-.fishcg-name { font-size: 17px; font-weight: bold; color: #eef6ff; }
-.fishcg-record { font-size: 11.5px; color: #ffd86b; margin-bottom: 8px; }
+.fishcg-name { font-size: 20px; font-weight: bold; color: #eef6ff; }
+/* 弹窗内的稀有度徽章跟随主题色 (覆盖图鉴网格里那套通用 .rarity-* 配色) */
+.fishcg-name-row .rarity-tag {
+  background: var(--fc-badge);
+  color: var(--fc-accent);
+  border: 1px solid var(--fc-line);
+}
+.fishcg-record {
+  font-size: 11px;
+  color: #7f9db0;
+  margin-bottom: 9px;
+}
 .fishcg-desc {
   font-size: 12.5px;
   line-height: 1.65;
-  color: #cfe8f0;
+  color: #a8ccd8;
   text-align: left;
-  background: #0e2030;
-  border: 1px solid #2a4a64;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  border-left: 2px solid var(--fc-line);
+  border-radius: 0 8px 8px 0;
   padding: 9px 11px;
 }
 .fishcg-release {
@@ -1309,8 +1419,9 @@ html, body {
   text-align: left;
 }
 .fishcg-tap-hint {
-  margin-top: 10px;
-  font-size: 10.5px;
-  color: #9fc3d6;
-  opacity: 0.65;
+  margin-top: 12px;
+  font-size: 10px;
+  color: #6d8a9c;
+  opacity: 0.8;
+  text-align: center;
 }
