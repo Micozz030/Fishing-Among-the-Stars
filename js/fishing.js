@@ -21,6 +21,9 @@ import {
 import { checkFishAchievements } from "./systems.js";
 import { updateUI } from "./ui.js";
 import { sfx } from "./audio.js";
+import {
+  enqueueFirstCatchReveal, onFishCGQueueDrained, ensureFishCG, drawFishCGContain,
+} from "./fishcg.js";
 
 // ====== 钓鱼动画状态机 ======
 // 普通鱼: idle -> casting(抛线0.5s) -> waiting(等待咬钩1.5~3s) -> biting(咬钩窗口0.8s) -> pulling(拉线0.5s) -> idle
@@ -49,11 +52,22 @@ function weightedFishPool(zoneKey, rarity) {
   return pickWeighted(entries.map(e => ({ weight: e.weight, res: e.key })));
 }
 
+// 本次结算中"首次收录"的鱼种 —— 它们的放归文案会并入CG弹窗一起显示, 因此这里不再单独 toast 一次,
+// 避免"弹窗 + toast"重复念同一段话。由 registerCatch 写入, grantCatchResource 消费掉。
+const firstCatchPending = new Set();
+
 // 保护动物钓获后: 只记录图鉴, 不进背包/不给鱼资源, 改为放归文案 (见 data.js RELEASE_COPY)
-function grantCatchResource(speciesKey, amount) {
+// 必须紧跟在 registerCatch() 之后调用 —— 它负责消费 firstCatchPending, 保证放归文案要么进弹窗、
+// 要么走 toast, 不会两边都念一遍。所有"钓到鱼"的入口(含 systems.js 的河流事件)都应走这里。
+export function grantCatchResource(speciesKey, amount) {
   if (FISH[speciesKey].protected) {
-    toast(RELEASE_COPY[speciesKey] || "已记录图鉴,随后被放归。");
+    if (firstCatchPending.has(speciesKey)) {
+      firstCatchPending.delete(speciesKey); // 首次收录: 放归文案交给CG弹窗展示
+    } else {
+      toast(RELEASE_COPY[speciesKey] || "已记录图鉴,随后被放归。");
+    }
   } else {
+    firstCatchPending.delete(speciesKey);
     state.res.fish += amount;
   }
 }
@@ -87,6 +101,8 @@ export function rollFishLength(fishKey) {
 // 返回值: 本次捕获是否刷新了纪录
 export function registerCatch(fishKey, isExtra, length) {
   const def = FISH[fishKey];
+  // 首次捕获判定: 图鉴里还没有这条鱼的条目 = 本次是"新收录" (复用已有的图鉴发现状态, 不新增存档字段)
+  const isFirstCatch = !state.bestiary[fishKey];
   const entry = state.bestiary[fishKey] || (state.bestiary[fishKey] = { caught: false, count: 0, firstZone: null, record: null });
   entry.caught = true;
   entry.count += 1;
@@ -112,6 +128,15 @@ export function registerCatch(fishKey, isExtra, length) {
   } else if (!isExtra) {
     const commonLenTag = typeof length === "number" ? ` ${length.toFixed(1)}cm` : "";
     toast(`${def.icon} ${def.name}${commonLenTag}`);
+  }
+
+  // 首次收录: 排队弹出CG揭晓弹窗 (弹窗内部会延后到本次结算的同步流程跑完之后才真正显示)
+  if (isFirstCatch) {
+    firstCatchPending.add(fishKey);
+    // 兜底: 正常情况下紧随其后的 grantCatchResource 会同步消费掉这个标记; 万一有调用方漏了这一步,
+    // 也在本轮宏任务结束时清掉, 避免残留的 key 在下一次"重复捕获"时错误地吞掉放归文案。
+    setTimeout(() => firstCatchPending.delete(fishKey), 0);
+    enqueueFirstCatchReveal(fishKey);
   }
   return isNewRecord;
 }
@@ -610,7 +635,16 @@ function finalizeMinigameCatch(success) {
 }
 
 // ====== 社交分享卡片: 稀有/传说鱼捕获后展示"分享战绩"按钮, 点击生成可下载的PNG图片 ======
+const SHARE_BTN_TIMEOUT_MS = 6000;
 let shareButtonTimer = null;
+
+// 首次收录的CG弹窗会盖住分享按钮, 玩家读完立绘/科普再关掉时按钮可能已经超时消失了。
+// 因此弹窗队列排空后, 只要分享按钮还在, 就把它的倒计时重新计满一轮。
+onFishCGQueueDrained(() => {
+  if (!document.getElementById("share-catch-btn")) return;
+  if (shareButtonTimer) clearTimeout(shareButtonTimer);
+  shareButtonTimer = setTimeout(removeShareButton, SHARE_BTN_TIMEOUT_MS);
+});
 
 function showShareButton(speciesKey, length, tier) {
   removeShareButton();
@@ -624,7 +658,7 @@ function showShareButton(speciesKey, length, tier) {
     removeShareButton();
   };
   document.body.appendChild(btn);
-  shareButtonTimer = setTimeout(removeShareButton, 6000);
+  shareButtonTimer = setTimeout(removeShareButton, SHARE_BTN_TIMEOUT_MS);
 }
 
 function removeShareButton() {
@@ -643,9 +677,11 @@ function lengthComparisonLabel(cm) {
   return "一个成年人";
 }
 
-function generateShareCard(speciesKey, length, tier) {
+async function generateShareCard(speciesKey, length, tier) {
   const def = FISH[speciesKey];
   const isLeg = tier === "legendary";
+  // 有立绘就优先用立绘 (等它加载完再画, 避免画出半张空白卡); 没有则回退到像素图/emoji
+  const hasCG = await ensureFishCG(speciesKey);
   const W = 600, H = 800;
   const cv = document.createElement("canvas");
   cv.width = W; cv.height = H;
@@ -674,9 +710,13 @@ function generateShareCard(speciesKey, length, tier) {
   c.font = "bold 30px sans-serif";
   c.fillText("星际钓鱼 🎣", W / 2, 70);
 
-  // 中央鱼图标 (像素鱼放大绘制, 否则用大号emoji)
+  // 中央主视觉: 立绘 contain-fit 进一块预留的正方形区域 (居中, 不裁剪不拉伸);
+  // 没有立绘时回退到原有的"像素鱼放大 / 大号emoji"
+  const CG_REGION = { x: W / 2 - 130, y: 96, w: 260, h: 260 };
   const pg = FISH_PIXEL_GRIDS[speciesKey];
-  if (def.pixel && pg) {
+  if (hasCG && drawFishCGContain(c, speciesKey, CG_REGION)) {
+    // 立绘已画好, 不再走下面的回退分支
+  } else if (def.pixel && pg) {
     const scale = 14;
     const gw = pg.grid[0].length * scale, gh = pg.grid.length * scale;
     const ox = W / 2 - gw / 2, oy = H * 0.30 - gh / 2;

@@ -34,6 +34,7 @@ import {
   fishingState, fishingPhaseUntil, fishingPhaseDur, fishingBiteTier, rodChance, displayChancePct,
 } from "./fishing.js";
 import { ACHIEVEMENTS, ACHV_CATEGORY_LABEL, isZoneUnlocked, zoneUnlockProgress } from "./systems.js";
+import { observeBestiaryThumbs, openFishDetail } from "./fishcg.js";
 
 // ====== UI 临时状态 (不写入存档 state, 单独持久化或纯内存) ======
 export let selectedBait = "seaweed";       // 当前选中的鱼饵 (下拉选择, 默认水草)
@@ -110,13 +111,16 @@ export function renderBestiary() {
       const def = FISH[key];
       const entry = state.bestiary[key];
       const card = document.createElement("div");
-      card.className = "fish-card" + (entry ? "" : " unknown");
+      card.className = "fish-card" + (entry ? " discovered" : " unknown");
 
+      // 已发现: 正方形缩略图格子, CG 懒加载到位后作为背景图 cover 显示, 未到位/无立绘时内部的
+      // 像素图/emoji 继续作为回退可见。未发现: 保持 ❓ 剪影, 绝不泄露没钓到过的鱼的立绘。
       let iconHtml;
-      if (entry && def.pixel) {
-        iconHtml = `<canvas width="8" height="6" data-fish="${key}"></canvas>`;
-      } else if (entry) {
-        iconHtml = def.icon;
+      if (entry) {
+        const inner = def.pixel
+          ? `<canvas width="8" height="6" data-fish="${key}"></canvas>`
+          : `<span>${def.icon}</span>`;
+        iconHtml = `<div class="fish-thumb" data-cg-thumb="${key}">${inner}</div>`;
       } else {
         iconHtml = "❓";
       }
@@ -138,12 +142,14 @@ export function renderBestiary() {
         <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${zoneDef(entry.firstZone).name}` : "尚未发现"}</div>
         ${recordHtml}
       `;
+      // 已发现的鱼: 点击卡片打开详情弹窗 (完整立绘 + 科普 + 纪录)
+      if (entry) card.onclick = () => openFishDetail(key);
       sectionGrid.appendChild(card);
     });
     grid.appendChild(sectionGrid);
   });
 
-  // 像素图标绘制 (已捕获的稀有/传说鱼)
+  // 像素图标绘制 (已捕获的稀有/传说鱼; 作为CG未就绪/无立绘时的回退底图)
   grid.querySelectorAll("canvas[data-fish]").forEach(cv => {
     const key = cv.getAttribute("data-fish");
     const pg = FISH_PIXEL_GRIDS[key];
@@ -159,6 +165,10 @@ export function renderBestiary() {
       }
     }
   });
+
+  // CG缩略图懒加载: 只有滚动进视口的卡片才真正去请求图片, 保证移动端图鉴滚动流畅
+  const scroller = grid.closest(".chest-box-scroll") || grid;
+  observeBestiaryThumbs(scroller);
 }
 
 // ====== 图纸面板 ======

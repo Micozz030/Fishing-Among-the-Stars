@@ -631,8 +631,31 @@ html, body {
   gap: 3px;
 }
 .fish-card.unknown { opacity: 0.5; }
+.fish-card.discovered { cursor: pointer; }
+.fish-card.discovered:active { border-color: #ffd86b; }
 .fish-icon { position: relative; font-size: 26px; line-height: 1; height: 32px; display: flex; align-items: center; justify-content: center; }
 .fish-icon canvas { image-rendering: pixelated; width: 32px; height: 32px; }
+/* 图鉴缩略图: 统一正方形格子 + cover 居中裁剪, 不论原图什么长宽比, 网格都保持整齐
+   (CG未加载/无立绘时, 内部的 emoji/像素图作为回退继续显示; 有图后加 .has-cg 把回退隐藏) */
+.fish-thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  border: 1px solid #2a4a64;
+  background-color: #0a1622;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  overflow: hidden;
+}
+.fish-thumb canvas { image-rendering: pixelated; width: 40px; height: 40px; }
+.fish-thumb.has-cg > * { display: none; }
+.fish-thumb.has-cg { font-size: 0; }
 .fish-name { font-size: 11.5px; font-weight: bold; }
 .fish-count { font-size: 10px; opacity: 0.8; }
 .fish-record { font-size: 9.5px; color: #ffd86b; opacity: 0.9; }
@@ -1186,4 +1209,108 @@ html, body {
 @keyframes introTapHintPulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.85; }
+}
+
+/* ====== 鱼类CG弹窗: 首次收录揭晓 + 图鉴详情 (见 js/fishcg.js) ====== */
+/* z-index 700: 高于钓鱼小游戏输入层(600)与分享按钮(550), 低于开场剧情(950) */
+#fishcg-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  background: rgba(2, 8, 14, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  cursor: pointer;
+}
+#fishcg-modal.hidden { display: none; }
+.fishcg-box {
+  position: relative;
+  width: min(92vw, 380px);
+  max-height: 92vh;
+  overflow-y: auto;
+  background: #16324a;
+  border: 2px solid #ffd86b;
+  border-radius: 16px;
+  padding: 16px 16px 12px;
+  text-align: center;
+  animation: fishcgPopIn 0.3s ease;
+}
+/* 立绘轻微放大入场 0.95 -> 1 */
+@keyframes fishcgPopIn {
+  0% { opacity: 0; transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.fishcg-header {
+  font-size: 15px;
+  font-weight: bold;
+  color: #cfe8f0;
+  margin-bottom: 10px;
+  padding-right: 34px;
+}
+.fishcg-header.is-new { color: #ffd86b; }
+
+/* 立绘舞台: 固定取景区 (最大 80vw × 55vh), 深色底板 + 圆角细边, 让 contain 产生的留白看起来是有意为之。
+   任意长宽比的原图都完整显示 —— 很宽的图上下留白, 很高的图左右留白, 永不拉伸变形。 */
+.fishcg-stage {
+  width: min(80vw, 330px);
+  height: min(55vh, 330px);
+  margin: 0 auto 12px;
+  background: #0a1622;
+  border: 1px solid #2a4a64;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.fishcg-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* 关键: 完整显示整幅立绘, letterbox 而不是裁剪/拉伸 */
+  display: block;
+}
+.fishcg-fallback-pixel {
+  image-rendering: pixelated;
+  width: 60%;
+  height: auto;
+  object-fit: contain;
+}
+.fishcg-fallback-emoji { line-height: 1; }
+
+.fishcg-info { text-align: center; }
+.fishcg-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.fishcg-name { font-size: 17px; font-weight: bold; color: #eef6ff; }
+.fishcg-record { font-size: 11.5px; color: #ffd86b; margin-bottom: 8px; }
+.fishcg-desc {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #cfe8f0;
+  text-align: left;
+  background: #0e2030;
+  border: 1px solid #2a4a64;
+  border-radius: 8px;
+  padding: 9px 11px;
+}
+.fishcg-release {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #8fe3c8;
+  font-style: italic;
+  text-align: left;
+}
+.fishcg-tap-hint {
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: #9fc3d6;
+  opacity: 0.65;
 }

@@ -227,6 +227,27 @@
     </div>
   </div>
 
+  <!-- 鱼类CG弹窗: 首次捕获"新收录"揭晓 + 图鉴详情, 两者共用同一套布局 (见 js/fishcg.js) -->
+  <div id="fishcg-modal" class="hidden">
+    <div class="fishcg-box">
+      <button class="close-btn" id="fishcg-close">✕</button>
+      <div id="fishcg-header" class="fishcg-header"></div>
+      <!-- 立绘舞台: 固定区域 + object-fit:contain, 原图任意长宽比都完整可见(留黑边而非拉伸) -->
+      <div id="fishcg-stage" class="fishcg-stage"></div>
+      <div class="fishcg-info">
+        <div class="fishcg-name-row">
+          <span id="fishcg-name" class="fishcg-name"></span>
+          <span id="fishcg-rarity"></span>
+          <span id="fishcg-protected" class="protected-badge hidden" title="保护动物·钓获后放归">🛡️</span>
+        </div>
+        <div id="fishcg-record" class="fishcg-record hidden"></div>
+        <div id="fishcg-desc" class="fishcg-desc hidden"></div>
+        <div id="fishcg-release" class="fishcg-release hidden"></div>
+      </div>
+      <div class="fishcg-tap-hint">轻触任意处关闭</div>
+    </div>
+  </div>
+
   <div id="blueprint-modal" class="hidden">
     <div class="chest-box bestiary-box">
       <button class="close-btn" id="blueprint-close">✕</button>

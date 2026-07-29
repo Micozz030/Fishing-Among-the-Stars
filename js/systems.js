@@ -9,7 +9,7 @@
 import { CONFIG, BOTTLE_REST_X, ICONS } from "./config.js";
 import {
   BLUEPRINTS, PET_TYPES, LOOT_TABLE_STONE, LOOT_TABLE_IRON, FISH, BUILDS,
-  ZONES, zoneDef, zoneBasin, zoneCommonSpecies, zonePool, RELEASE_COPY,
+  ZONES, zoneDef, zoneBasin, zoneCommonSpecies, zonePool,
 } from "./data.js";
 import {
   state, ctx, toast, addRes, resLine, pick, pickWeighted, save,
@@ -17,7 +17,7 @@ import {
   isBuiltKey, BUILDING_RENDER_ORDER, zoneTotalSlots, sturdyMitigation, flashLegendary,
 } from "./state.js";
 import { updateUI } from "./ui.js";
-import { registerCatch } from "./fishing.js";
+import { registerCatch, grantCatchResource } from "./fishing.js";
 import { sfx } from "./audio.js";
 
 // ====== 自动收集网专用掉落表: 在基础打捞表之上额外加入"普通鱼", 权重为其他条目的1.5倍 ======
@@ -130,8 +130,8 @@ const EVENTS_RIVER = [
           const k = weightedFishPool(state.zone, "rare");
           if (k) {
             registerCatch(k);
-            if (FISH[k].protected) toast(RELEASE_COPY[k] || "已记录图鉴,随后被放归。");
-            else state.res.fish += 1;
+            // 统一走 fishing.js 的发放逻辑: 保护动物只记图鉴+放归文案, 且首次收录时文案并入CG弹窗不重复念
+            grantCatchResource(k, 1);
           } else {
             toast("跟丢了,什么都没发生");
           }

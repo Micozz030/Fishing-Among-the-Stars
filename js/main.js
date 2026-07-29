@@ -21,12 +21,14 @@ import {
 } from "./render.js";
 import { initAudioOnGesture, isMuted, toggleMute } from "./audio.js";
 import { startIntro } from "./intro.js";
+import { wireFishCGModal } from "./fishcg.js";
 
 // ====== 初始化 ======
 load(PET_TYPES);
 auditBagItemCoverage();
 loadCostume();
 wirePetAnimation(setPetAction);
+wireFishCGModal();
 initAudioOnGesture();
 
 document.getElementById("btn-fish-loot").onclick = doFishLoot;
