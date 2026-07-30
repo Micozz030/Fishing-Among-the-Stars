@@ -151,7 +151,11 @@ export function migrate(data, validPetTypes) {
     const riverSlots = 9 + (ze.river || 0) * 4;
     state.raftSlots = Math.max(streamSlots, riverSlots, CONFIG.INITIAL_RAFT_SLOTS);
   } else {
-    state.raftSlots = data.raftSlots !== undefined ? data.raftSlots : CONFIG.INITIAL_RAFT_SLOTS;
+    // 老存档兜底抬升: 初始格数从4改成6(2×3)后, 任何不足6格的存档都补齐到6, 只升不降
+    state.raftSlots = Math.max(
+      data.raftSlots !== undefined ? data.raftSlots : CONFIG.INITIAL_RAFT_SLOTS,
+      CONFIG.INITIAL_RAFT_SLOTS,
+    );
   }
   delete state.zoneExpansions;
   state.builds = Object.assign({ net: false, furnace: false, autocollector: false, rod: false, hammer: false, purifier: false }, data.builds);

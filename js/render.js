@@ -337,7 +337,7 @@ const BUILDING_RENDERERS = {
 };
 
 // 木筏: 按当前流域面积动态拼成方格网, 已建成的建筑渲染对应像素占位图, 扩建出的空槽位用浅色虚线边框提示
-let raftDisplayedSlots = 4;
+let raftDisplayedSlots = CONFIG.INITIAL_RAFT_SLOTS;
 export function setRaftDisplayedSlots(n) { raftDisplayedSlots = n; } // 供 main.js 在初始化时设定初始值
 function drawRaft() {
   const targetSlots = zoneTotalSlots();

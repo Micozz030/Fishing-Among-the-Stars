@@ -19,7 +19,7 @@ export const CONFIG = {
   BLUEPRINT_DROP_CHANCE: 0.13,                        // 翻垃圾掉落图纸概率
   RAFT_PART_COST_MULTIPLIER: 2,                       // 图纸建筑材料成本倍数
   EXPAND_COST: { wood: 15, rope: 5 },                  // 每次扩建木筏消耗
-  INITIAL_RAFT_SLOTS: 4,                              // 新存档初始木筏格数
+  INITIAL_RAFT_SLOTS: 6,                              // 新存档初始木筏格数 (2行×3列; 布局由 drawRaft 的 ceil(sqrt(n)) 自动推导)
   ROPE_CRAFT: { cost: { wood: 5 }, yield: { rope: 2 } },        // 合成绳子
   REPAIR_KIT_CRAFT: { cost: { wood: 8 }, yield: { raftkit: 1 } }, // 合成木筏修复包
   JERKY_CRAFT: { cost: { fish: 3 }, yield: { jerky: 1 } },        // 晒鱼干
@@ -67,16 +67,17 @@ export const MINIGAME_CONFIG = {
   fishLerpRate: 0.12,           // 鱼当前速度向目标速度平滑过渡的插值系数(每帧)
   fishStartledMult: 1.8,        // 玩家点空后, 鱼受惊速度倍率
   fishStartledDurationMs: 1000, // 受惊状态持续时间
-  fishHookedSpeedMult: 1.3,     // 传说鱼第一次被钩住后, 剩余时间内速度提升30%
+  // 传说鱼每成功钩中一次, 剩余时间内游速再乘以这个系数 (逐次累乘: 基础 → ×1.2 → ×1.44, 最后一钩最难)
+  fishHookedSpeedMult: 1.2,
 
   // --- 命中/尝试次数 ---
   rareHooksNeeded: 1,           // 稀有鱼需要成功钩取次数
   rareAttemptsAllowed: 3,       // 稀有鱼总尝试次数
-  legendaryHooksNeeded: 2,      // 传说鱼需要成功钩取次数
-  legendaryAttemptsAllowed: 4,  // 传说鱼总尝试次数
+  legendaryHooksNeeded: 3,      // 传说鱼需要成功钩取次数 (三段式拉锯)
+  legendaryAttemptsAllowed: 5,  // 传说鱼总尝试次数 (容错2次)
 
   rareDurationMs: 8000,
-  legendaryDurationMs: 12000,
+  legendaryDurationMs: 14000,
   flashDurationMs: 500,         // 结算后的闪光展示时长 (仅在最终成功/失败时使用)
   tapFlashDurationMs: 260,      // 每次点击瞬间的命中/落空反馈闪光时长
 

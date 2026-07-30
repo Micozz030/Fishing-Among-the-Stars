@@ -381,7 +381,7 @@ function startMinigame(tier) {
     fishNextRedirectAt: 0,        // 0 表示下一帧立刻重新选一次目标速度
     fishBaseSpeed,
     fishStartledUntil: 0,         // 玩家点空后的受惊状态结束时间戳
-    fishHookedSpeedBonus: 1,      // 传说鱼首次命中后触发的永久提速倍率
+    fishHookedSpeedBonus: 1,      // 传说鱼每命中一钩就累乘一次的提速倍率 (见 onMinigameTap)
 
     // 绿色钩取区间 (规律乒乓)
     zoneY: Math.random() * (MINIGAME_CONFIG.barH - zoneH),
@@ -466,8 +466,9 @@ function onMinigameTap() {
       return;
     }
     if (minigame.tier === "legendary") {
-      minigame.fishHookedSpeedBonus = MINIGAME_CONFIG.fishHookedSpeedMult;
-      toast("钩住了!再来一次!");
+      // 逐次累乘(不是覆盖赋值): 第1钩后 ×1.2, 第2钩后 ×1.44 —— 越往后鱼越暴躁, 最后一钩最难
+      minigame.fishHookedSpeedBonus *= MINIGAME_CONFIG.fishHookedSpeedMult;
+      toast(`钩住了! 🪝 ${minigame.hooksDone}/${minigame.hooksNeeded},它挣扎得更凶了!`);
     }
   } else {
     sfx.hookMiss();
