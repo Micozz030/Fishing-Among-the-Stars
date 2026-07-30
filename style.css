@@ -616,7 +616,10 @@ html, body {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-.protected-badge { font-size: 10px; margin-left: 2px; cursor: help; }
+.protected-badge { font-size: 10px; flex: 0 0 auto; cursor: help; }
+/* 卡片是自上而下的普通流式纵向布局, 元素之间不重叠:
+   缩略图 → 鱼名 → 稀有度徽章 → 捕获次数/初遇流域 → 体长纪录。
+   高度由内容自然撑开 (min-height 只兜底空内容的情况), 同一行的卡片靠 grid 默认的 stretch 对齐。 */
 .fish-card {
   background: #0e2030;
   border: 2px solid #2a4a64;
@@ -624,23 +627,41 @@ html, body {
   padding: 8px;
   text-align: center;
   min-height: 100px;
+  /* grid 项默认 min-width:auto 会被"最长的那个不可断行内容"顶宽, 导致超长鱼名把整列撑大而不是省略号截断。
+     显式 min-width:0 才允许卡片收缩到列宽以内, 让 .fish-name-text 的 ellipsis 真正生效。 */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
+  justify-content: flex-start;
+  gap: 6px;
 }
 .fish-card.unknown { opacity: 0.5; }
 .fish-card.discovered { cursor: pointer; }
 .fish-card.discovered:active { border-color: #ffd86b; }
-.fish-icon { position: relative; font-size: 26px; line-height: 1; height: 32px; display: flex; align-items: center; justify-content: center; }
+/* 关键修复: 这里原本写死 height:32px —— 那是只放 emoji 时代的尺寸。后来图鉴缩略图(.fish-thumb)
+   变成 72px 的方块塞进来, 子元素比固定高的父容器高出一大截, 就溢出压在下面的鱼名上了。
+   改成 min-height 后, 纯 emoji 的图纸卡片仍保持原来的 32px, 缩略图卡片则由内容把高度撑开。
+   flex:0 0 auto 再确保它不会被 flex 压缩回去。 */
+.fish-icon {
+  position: static;
+  font-size: 26px;
+  line-height: 1;
+  min-height: 32px;
+  flex: 0 0 auto;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .fish-icon canvas { image-rendering: pixelated; width: 32px; height: 32px; }
 /* 图鉴缩略图: 统一正方形格子 + cover 居中裁剪, 不论原图什么长宽比, 网格都保持整齐
    (CG未加载/无立绘时, 内部的 emoji/像素图作为回退继续显示; 有图后加 .has-cg 把回退隐藏) */
 .fish-thumb {
-  position: relative;
-  width: 56px;
-  height: 56px;
+  position: static;
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
   border-radius: 6px;
   border: 1px solid #2a4a64;
   background-color: #0a1622;
@@ -650,15 +671,33 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
+  font-size: 30px;
   overflow: hidden;
 }
-.fish-thumb canvas { image-rendering: pixelated; width: 40px; height: 40px; }
+.fish-thumb canvas { image-rendering: pixelated; width: 48px; height: 48px; }
 .fish-thumb.has-cg > * { display: none; }
 .fish-thumb.has-cg { font-size: 0; }
-.fish-name { font-size: 11.5px; font-weight: bold; }
-.fish-count { font-size: 10px; opacity: 0.8; }
-.fish-record { font-size: 9.5px; color: #ffd86b; opacity: 0.9; }
+/* 未发现的鱼: ❓ 占位用和缩略图完全相同的方块尺寸, 保证已发现/未发现两种卡片的占位一致, 网格不错位 */
+.fish-thumb.is-unknown { border-style: dashed; background-color: #0a1622; }
+/* 鱼名: 单行显示, 过长(如 密西西比匙吻鲟)省略号截断而不是换行撑破布局 —— 完整名字在详情弹窗里能看到。
+   保护动物的 🛡️ 徽章是独立的 flex 项, 不参与截断, 不会被省略号吃掉。 */
+.fish-name {
+  font-size: 14px;
+  font-weight: bold;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.fish-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fish-count { font-size: 10px; opacity: 0.8; max-width: 100%; }
+.fish-record { font-size: 9.5px; color: #ffd86b; opacity: 0.9; max-width: 100%; }
 .rarity-tag {
   font-size: 9px;
   padding: 1px 6px;

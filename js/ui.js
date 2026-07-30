@@ -122,7 +122,8 @@ export function renderBestiary() {
           : `<span>${def.icon}</span>`;
         iconHtml = `<div class="fish-thumb" data-cg-thumb="${key}">${inner}</div>`;
       } else {
-        iconHtml = "❓";
+        // 未发现: ❓ 占位也套同一个 .fish-thumb 方块, 让两种卡片的缩略图占位尺寸完全一致
+        iconHtml = `<div class="fish-thumb is-unknown"><span>❓</span></div>`;
       }
 
       // 🏆 皇冠徽章已移除(所有稀有度); 普通鱼只显示体长, 稀有/传说额外附上破纪录日期
@@ -137,7 +138,7 @@ export function renderBestiary() {
 
       card.innerHTML = `
         <div class="fish-icon">${iconHtml}</div>
-        <div class="fish-name">${entry ? def.name : "???"}${protectedBadge}</div>
+        <div class="fish-name"><span class="fish-name-text">${entry ? def.name : "???"}</span>${protectedBadge}</div>
         <div class="rarity-tag rarity-${def.rarity}">${RARITY_LABEL[def.rarity]}</div>
         <div class="fish-count">${entry ? `钓到${entry.count}次 · 初遇${zoneDef(entry.firstZone).name}` : "尚未发现"}</div>
         ${recordHtml}
