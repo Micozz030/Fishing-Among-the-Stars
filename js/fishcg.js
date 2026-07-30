@@ -11,7 +11,7 @@ import { state } from "./state.js";
 import { sfx } from "./audio.js";
 
 const CG_DIR = "assets/fish/";
-// 素材里绝大多数是 png, 个别是 jpg (如 胭脂鱼.jpg) —— 按顺序尝试, 都失败才算这条鱼没有立绘
+// 目前 assets/fish 下全部是 png (去背版), jpg 仅作为向后兼容的兜底 —— 按顺序尝试, 都失败才算这条鱼没有立绘
 const CG_EXTS = ["png", "jpg"];
 // 性能护栏: 超过这个长边尺寸的原图, 一次性缩放进离屏canvas缓存, 之后所有渲染都复用缩放后的版本,
 // 避免个别超大源文件(如 1254px 的巨口黑鱼)在移动端反复解码/缩放拖慢图鉴滚动。
