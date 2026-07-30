@@ -708,6 +708,17 @@ html, body {
 .rarity-rare { background: linear-gradient(90deg, #ff8bd1, #b08bff); color: #2a0a2a; }
 .rarity-legendary { background: linear-gradient(90deg, #ffd86b, #ffb347); color: #3a2400; }
 
+/* ====== 打造面板分区标题 (🎣 鱼饵 / ⚗️ 熔炼) ====== */
+.craft-section-head {
+  font-size: 12.5px;
+  font-weight: bold;
+  color: #ffd86b;
+  margin: 14px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #2a4a64;
+}
+.craft-locked-row { opacity: 0.55; }
+
 /* ====== 图纸 (复用 fish-card 样式结构) ====== */
 #blueprint-grid {
   display: grid;

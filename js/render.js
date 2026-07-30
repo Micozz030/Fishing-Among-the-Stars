@@ -324,8 +324,23 @@ function drawFlowerpotBlock(x, y, s) {
   ctx.fillRect(x + s * 0.42, y + s * 0.25, s * 0.16, s * 0.16);
 }
 
+// 熔炼炉: 深色石炉体 + 橘红炉心 + 顶部一点蒸腾的紫光 (呼应"把渔获之魂凝成结晶")
+function drawSmelteryBlock(x, y, s) {
+  ctx.fillStyle = "#4a4048";
+  ctx.fillRect(x + s * 0.18, y + s * 0.3, s * 0.64, s * 0.6);
+  ctx.fillStyle = "#2e272f";
+  ctx.fillRect(x + s * 0.18, y + s * 0.3, s * 0.64, s * 0.1);
+  ctx.fillStyle = "#ff8a3d";
+  ctx.fillRect(x + s * 0.34, y + s * 0.52, s * 0.32, s * 0.26);
+  ctx.fillStyle = "#ffd86b";
+  ctx.fillRect(x + s * 0.42, y + s * 0.6, s * 0.16, s * 0.12);
+  ctx.fillStyle = "#c79bff";
+  ctx.fillRect(x + s * 0.44, y + s * 0.14, s * 0.12, s * 0.12);
+}
+
 const BUILDING_RENDERERS = {
   furnace: drawFurnaceBlock,
+  smeltery: drawSmelteryBlock,
   purifier: drawPurifierBlock,
   autocollector: drawAutocollectorBlock,
   furnace_v2: drawFurnaceV2Block,

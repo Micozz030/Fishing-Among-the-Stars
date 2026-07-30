@@ -8,6 +8,7 @@ import {
   LOOT_TABLE_STONE, LOOT_TABLE_IRON, RUMMAGE_TABLE_STONE, RUMMAGE_TABLE_IRON,
   CHEST_LOOT, ANACHRONISMS, RUMMAGE_JOKES, BLUEPRINTS, RAFT_PARTS, BUILDS,
   PET_TYPES, FOOD_DEFS, SKILL_DEFS, BUFFS, SHOP_ITEMS,
+  BAIT_RECIPES, SMELT_RECIPES,
   zoneDef, zoneBasin, zoneSlotConfig,
 } from "./data.js";
 import {
@@ -106,6 +107,22 @@ export function doMakeJerky(n) {
 
 export function doSmeltIron(n) {
   doCraftBatch("smelt", CONFIG.SMELT_CRAFT.cost, CONFIG.SMELT_CRAFT.yield, n || 1, 4, "熔炼铁块");
+}
+
+// ====== 鱼饵打造 (配方随流域解锁, 见 systems.js checkRecipeUnlocks) ======
+export function doCraftBait(recipeKey, n) {
+  const r = BAIT_RECIPES.find(x => x.key === recipeKey);
+  if (!r) return;
+  if (!state.recipesUnlocked[r.key]) { sfx.error(); toast("还没有学会这个配方"); return; }
+  doCraftBatch(`craft_${r.key}`, r.cost, r.yield, n || 1, 2, `打造${r.name}`);
+}
+
+// ====== 熔炼渔获之魂 → 钓鱼之神的眷顾 (需要建成熔炼炉) ======
+export function doSmeltSoul(recipeKey, n) {
+  const r = SMELT_RECIPES.find(x => x.key === recipeKey);
+  if (!r) return;
+  if (!state.builds.smeltery) { sfx.error(); toast("需要建造: 熔炼炉"); return; }
+  doCraftBatch(`smelt_${r.key}`, r.cost, r.yield, n || 1, 4, r.name);
 }
 
 // ====== 宠物系统 ======
@@ -374,6 +391,7 @@ export function tryBuild(key) {
   else if (key === "purifier") toast("获得了净水过滤器! 🚰 开始缓慢产水");
   else if (key === "dryer") toast("获得了晒鱼架! 🍢 现在可以晒鱼干喂宠物了");
   else if (key === "anchor") toast("获得了加固船锚! ⚓ 木筏可以驶向更深的水域了");
+  else if (key === "smeltery") toast("获得了熔炼炉! ⚗️ 可以把渔获之魂熔成眷顾了");
   else toast(`获得了${def.name}`);
 
   checkBuildAchievements();

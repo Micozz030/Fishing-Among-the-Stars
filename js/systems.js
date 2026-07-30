@@ -9,7 +9,7 @@
 import { CONFIG, BOTTLE_REST_X, ICONS } from "./config.js";
 import {
   BLUEPRINTS, PET_TYPES, LOOT_TABLE_STONE, LOOT_TABLE_IRON, FISH, BUILDS,
-  ZONES, zoneDef, zoneBasin, zoneCommonSpecies, zonePool,
+  ZONES, zoneDef, zoneBasin, zoneCommonSpecies, zonePool, BAIT_RECIPES,
 } from "./data.js";
 import {
   state, ctx, toast, addRes, resLine, pick, pickWeighted, save,
@@ -59,6 +59,34 @@ export function isZoneUnlocked(zoneKey) {
     return commonsDone;
   }
   return false;
+}
+
+// ====== 配方随流域解锁 (每个配方只弹一次提示, 用 state.recipesUnlocked 记账) ======
+// 由 gameTick 每秒调用一次: 解锁条件本身是实时求值的(图鉴进度/建造情况随时可能达成),
+// 没有一个统一的"流域解锁事件"可以挂钩, 所以用轮询来捕捉这个状态跳变。
+export function checkRecipeUnlocks() {
+  BAIT_RECIPES.forEach(r => {
+    if (state.recipesUnlocked[r.key]) return;
+    if (!isZoneUnlocked(r.unlockZone)) return;
+    state.recipesUnlocked[r.key] = true;
+    if (r.unlockToast) toast(r.unlockToast);
+  });
+}
+
+// ====== 钓鱼之神的眷顾: 累计登录天数 (累计制, 不是连续签到 —— 断更多久都不清零) ======
+// 每个自然日首次进入游戏 +1; 攒满 CONFIG.FAVOR_LOGIN_DAYS 天发1个眷顾并归零重新累计。
+// 只在 main.js 启动时调用一次。
+export function checkLoginFavor() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (state.lastLoginDate === today) return; // 同一天内反复刷新不重复累加
+  state.lastLoginDate = today;
+  state.favorLoginProgress = (state.favorLoginProgress || 0) + 1;
+  if (state.favorLoginProgress >= CONFIG.FAVOR_LOGIN_DAYS) {
+    state.favorLoginProgress = 0;
+    addRes({ favor: 1 });
+    toast("🌟 钓鱼之神注意到了你的坚持 (眷顾+1)");
+  }
+  save();
 }
 
 // 面板展示用: 未解锁流域的解锁条件实时进度文案, 如 "图鉴 2/3" / "自动打捞 3/5"
@@ -608,6 +636,9 @@ export function gameTick(onboardingActive) {
     triggerRandomEvent();
     state.nextEventAt = now + 90000 + Math.random() * 60000;
   }
+
+  // 配方解锁检测 (流域解锁是实时求值的, 没有统一事件可挂钩, 这里每 tick 轮询一次状态跳变)
+  checkRecipeUnlocks();
 
   // 成就检测 (静置/同流域停留时长), 每30秒检查一次
   state.stats.achievementCheckAccum += deltaSec;

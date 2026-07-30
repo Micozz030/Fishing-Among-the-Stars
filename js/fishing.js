@@ -10,9 +10,10 @@
 // 拆成"用回调参数层层透传 updateUI"的写法反而会在 setTimeout 链和 DOM 事件回调之间引入脆弱的
 // 模块级"当前回调"闭包变量, 复杂度和出错概率都更高, 故这里选择直接接受这个受控的循环依赖。
 
-import { CONFIG, MINIGAME_CONFIG } from "./config.js";
+import { CONFIG, MINIGAME_CONFIG, ICONS } from "./config.js";
 import {
-  FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, RELEASE_COPY, zoneBasin, zonePool, roamingCandidates,
+  FISH, FISH_PIXEL_GRIDS, RARITY_LABEL, RELEASE_COPY, BAITS,
+  zoneBasin, zonePool, roamingCandidates,
 } from "./data.js";
 import {
   state, ctx, toast, spendEnergy, spawnFloatingText, flashLegendary, pick, pickWeighted, save,
@@ -60,15 +61,25 @@ const firstCatchPending = new Set();
 // 必须紧跟在 registerCatch() 之后调用 —— 它负责消费 firstCatchPending, 保证放归文案要么进弹窗、
 // 要么走 toast, 不会两边都念一遍。所有"钓到鱼"的入口(含 systems.js 的河流事件)都应走这里。
 export function grantCatchResource(speciesKey, amount) {
-  if (FISH[speciesKey].protected) {
+  const def = FISH[speciesKey];
+  if (def.protected) {
+    // 保护动物: 不进背包, 也不掉"渔获之魂", 只走放归流程
     if (firstCatchPending.has(speciesKey)) {
       firstCatchPending.delete(speciesKey); // 首次收录: 放归文案交给CG弹窗展示
     } else {
       toast(RELEASE_COPY[speciesKey] || "已记录图鉴,随后被放归。");
     }
-  } else {
-    firstCatchPending.delete(speciesKey);
-    state.res.fish += amount;
+    return;
+  }
+  firstCatchPending.delete(speciesKey);
+  state.res.fish += amount;
+  // 非保护的稀有/传说鱼额外凝出"渔获之魂", 熔炼炉里可以换成"钓鱼之神的眷顾"
+  if (def.rarity === "rare") {
+    state.res.rare_soul = (state.res.rare_soul || 0) + 1;
+    toast(`${ICONS.rare_soul} 稀有渔获 +1`);
+  } else if (def.rarity === "legendary") {
+    state.res.legend_soul = (state.res.legend_soul || 0) + 1;
+    toast(`${ICONS.legend_soul} 传说渔获 +1`);
   }
 }
 
@@ -150,13 +161,12 @@ export function rollFishSpecies(forceTier) {
     return k;
   }
   const basin = zoneBasin(state.zone);
-  const legendaryChance = 0.005;
   let tier = forceTier;
   if (!tier) {
-    if (Math.random() < legendaryChance) tier = "legendary";
+    if (Math.random() < CONFIG.LEGENDARY_BASE_CHANCE) tier = "legendary";
     else if (basin === "river") {
       const luckBonus = state.currentBuff === "luck" ? 0.20 : 0;
-      tier = Math.random() < (0.08 + luckBonus) ? "rare" : "common";
+      tier = Math.random() < (CONFIG.RARE_BASE_CHANCE + luckBonus) ? "rare" : "common";
     } else {
       tier = "common";
     }
@@ -180,31 +190,43 @@ export function displayChancePct(actualChance) {
 
 // 返回稀有/传说鱼出现概率的综合倍率 (饵料 × 技能 × 词条)
 function getRareLegendaryMultiplier(baitKey) {
-  const BAIT_MULTS = {
-    seaweed: { rare: 1.0, legendary: 1.0 },
-    bread:   { rare: 1.4, legendary: 1.6 },
-    spam:    { rare: 1.6, legendary: 2.0 },
-  };
-  const bm = BAIT_MULTS[baitKey] || BAIT_MULTS.seaweed;
-  let rare = bm.rare;
-  let legendary = bm.legendary;
+  const bm = BAITS[baitKey] || BAITS.seaweed;
+  let rare = bm.rareX;
+  let legendary = bm.legendaryX;
   if (state.skills.fish.rare_sense) { rare *= 1.2; legendary *= 1.1; }
   if (state.currentBuff === "precision" && zoneBasin(state.zone) === "river") { rare *= 1.15; legendary *= 1.15; }
   return { rare, legendary };
 }
 
+// 星光饵专用: 必定咬稀有或传说, 二者之间按"该流域的常规相对权重"分配 (0.008 : 0.08 ≈ 9% 传说 / 91% 稀有)。
+// 若当前流域根本没有某一档的鱼(例如溪流没有稀有鱼池), 则全部落到另一档, 避免"保证必中"却因空池回退成普通鱼。
+// 漫游稀有鱼不参与(zonePool 本身就把 roaming 排除在外)。
+function rollGuaranteedTier() {
+  const hasRare = zonePool(state.zone, "rare").length > 0;
+  const hasLegendary = zonePool(state.zone, "legendary").length > 0;
+  if (!hasRare && !hasLegendary) return null;   // 极端兜底: 该流域两档都没有, 交回常规流程
+  if (!hasRare) return "legendary";
+  if (!hasLegendary) return "rare";
+  const wLeg = CONFIG.LEGENDARY_BASE_CHANCE;
+  const wRare = CONFIG.RARE_BASE_CHANCE;
+  return Math.random() < wLeg / (wLeg + wRare) ? "legendary" : "rare";
+}
+
 // 根据饵料+技能+词条预判本次咬钩的鱼种等级
 function rollFishTierWithBait(baitKey) {
+  // 星光饵: 跳过一切概率判定 (也不参与倍率叠加), 直接给出必中的稀有/传说
+  if (BAITS[baitKey] && BAITS[baitKey].guaranteed) {
+    const forced = rollGuaranteedTier();
+    if (forced) return forced;
+  }
   const mults = getRareLegendaryMultiplier(baitKey);
-  if (Math.random() < 0.005 * mults.legendary) return "legendary";
+  if (Math.random() < CONFIG.LEGENDARY_BASE_CHANCE * mults.legendary) return "legendary";
   if (zoneBasin(state.zone) === "river") {
     const luckBonus = state.currentBuff === "luck" ? 0.20 : 0;
-    if (Math.random() < (0.08 + luckBonus) * mults.rare) return "rare";
+    if (Math.random() < (CONFIG.RARE_BASE_CHANCE + luckBonus) * mults.rare) return "rare";
   }
   return "common";
 }
-
-const BAIT_LABEL = { seaweed: "水草饵", bread: "面包饵", spam: "午餐肉饵" };
 const CAST_ENERGY_COST = 3;         // 每次抛竿消耗的精力 (与结算时刻脱钩, 抛竿瞬间就扣)
 const CAST_DURATION_MS = Math.round(350 * 1.15); // 抛线动画时长: 原350ms的1.15倍(手感微调, 403ms)
 
@@ -217,17 +239,18 @@ export function doFishing(useFoodBait) {
   if (!state.builds.rod) return;
   if (state.energy <= 0) { sfx.error(); toast("精力不足,歇一会再钓吧"); return; }
 
-  let baitKey = "seaweed";
-  if (useFoodBait === "bread" || useFoodBait === "spam") baitKey = useFoodBait;
-  if (state.res[baitKey] < 1) {
+  // 任何在 BAITS 表里登记过的饵料都能用 (水草/面包/午餐肉/粗制/精制/星光), 不认识的一律回退到水草
+  const baitKey = BAITS[useFoodBait] ? useFoodBait : "seaweed";
+  const baitDef = BAITS[baitKey];
+  if ((state.res[baitDef.res] || 0) < 1) {
     sfx.error();
-    toast(`没有${BAIT_LABEL[baitKey]}了,换一种饵料吧`);
+    toast(`没有${baitDef.label}了,换一种饵料吧`);
     return;
   }
 
   sfx.cast();
   spendEnergy(CAST_ENERGY_COST);
-  state.res[baitKey] -= 1;
+  state.res[baitDef.res] -= 1;
 
   fishingBaitKey = baitKey;
   fishingBaitBonus = 0; // 饵料不再影响命中率, 改为影响稀有/传说触发概率
@@ -252,8 +275,10 @@ function enterFishWaitPhase() {
 // 普通鱼: 沿用原有"抛线->等待->咬钩(0.8s窗口, 点击拉线)->收线"流程, 无小游戏
 // 稀有/传说鱼: 先经过一小段"咬钩预警"缓冲, 再进入精准小游戏 (见 startBiteAlert / startMinigame)
 function enterFishBitePhase() {
-  // 漫游稀有鱼: 独立小概率判定, 优先于常规稀有度判定; 命中则强制走传说鱼的咬钩预警+小游戏流程
-  const roamingKey = rollRoamingSpecies(state.zone);
+  // 漫游稀有鱼: 独立小概率判定, 优先于常规稀有度判定; 命中则强制走传说鱼的咬钩预警+小游戏流程。
+  // 星光饵明确排除漫游鱼(必中的是该流域的常规稀有/传说), 所以用星光饵时直接跳过这一轮判定。
+  const usingStarBait = !!(BAITS[fishingBaitKey] && BAITS[fishingBaitKey].guaranteed);
+  const roamingKey = usingStarBait ? null : rollRoamingSpecies(state.zone);
   if (roamingKey) {
     pendingRoamingSpecies = roamingKey;
     fishingBiteTier = "legendary";
@@ -621,7 +646,12 @@ function finalizeMinigameCatch(success) {
   } else {
     sfx.escape();
     // 鱼饵已经在抛竿瞬间扣过了, 小游戏失败不再额外扣一次 —— 只是单纯的"鱼跑了"
-    toast(tier === "legendary" ? "传说鱼挣脱鱼钩,跑掉了!" : "稀有鱼挣脱鱼钩,跑掉了!");
+    // 星光饵已经在抛竿时消耗掉了, 失败不退还 —— 换一句专属台词, 别让它读起来像普通的空军
+    if (BAITS[fishingBaitKey] && BAITS[fishingBaitKey].guaranteed) {
+      toast("星光散去了……但它记住了你的执着。");
+    } else {
+      toast(tier === "legendary" ? "传说鱼挣脱鱼钩,跑掉了!" : "稀有鱼挣脱鱼钩,跑掉了!");
+    }
     checkFishAchievements(null, false);
   }
 

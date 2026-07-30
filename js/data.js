@@ -86,6 +86,8 @@ export const BUILDS = [
   { key: "purifier", icon: "🚰", name: "净水过滤器", desc: "被动缓慢产出净水 (每次消耗1塑料存储)", cost: { plastic: 5, wood: 5 }, repeatable: false },
   { key: "dryer", icon: "🍢", name: "晒鱼架", desc: "解锁晒鱼干,鱼x3 → 鱼干x1 (宠物食物)", cost: { wood: 8, rope: 3 }, repeatable: false },
   { key: "anchor", icon: "⚓", name: "加固船锚", desc: "加固锚链,才能在核心水域的漩涡中稳住木筏", cost: { iron: 4, wood: 8, rope: 4 }, repeatable: false },
+  // 熔炼炉: 第5流域解锁后才出现在建造面板 (unlockZone), 建成后开启"⚗️ 熔炼"打造分区
+  { key: "smeltery", icon: "⚗️", name: "熔炼炉", desc: "灼热的炉心能把渔获之魂凝成结晶。", cost: { iron: 5, scrap: 6, wood: 10 }, unlockZone: "river_core", repeatable: false },
 ];
 
 // ====== 宠物系统 ======
@@ -174,6 +176,62 @@ export const FISH = {
   jellyfish: { name: "幽灵水母", icon: "👻", rarity: "legendary", zones: ["stream", "river"], pixel: true, lengthMult: 0.6 },
 };
 export const RARITY_LABEL = { common: "普通", rare: "稀有", legendary: "传说" };
+
+// ====== 鱼饵总表 (唯一数据源) ======
+// 重构前 倍率/名称/库存 分散在 fishing.js 的 BAIT_MULTS+BAIT_LABEL 和 ui.js 的 baitDefs() 三处,
+// 新增3种饵料会变成六处同步维护, 因此统一收敛到这里, 三边都从本表读。
+// res:  对应 state.res 里的资源 key (抛竿时扣这个)
+// tier: 下拉列表的排序权重 (从低到高: 水草 < 面包 < 午餐肉 < 粗制 < 精制 < 星光)
+// guaranteed: true 表示跳过所有概率判定, 本竿必定咬稀有或传说 (星光饵专属, 不参与倍率叠加)
+// needBuild/needRecipe: 仅用于打造面板的可见性/解锁判定, 不影响已持有饵料的使用
+export const BAITS = {
+  seaweed:     { res: "seaweed",     label: "水草饵",   tier: 1, rareX: 1.0, legendaryX: 1.0 },
+  bread:       { res: "bread",       label: "面包饵",   tier: 2, rareX: 1.4, legendaryX: 1.6 },
+  spam:        { res: "spam",        label: "午餐肉饵", tier: 3, rareX: 1.6, legendaryX: 1.5 },
+  bait_coarse: { res: "bait_coarse", label: "粗制鱼饵", tier: 4, rareX: 1.5, legendaryX: 2.0 },
+  bait_fine:   { res: "bait_fine",   label: "精制鱼饵", tier: 5, rareX: 2.0, legendaryX: 3.0 },
+  bait_star:   { res: "bait_star",   label: "✨星光饵", tier: 6, rareX: 1.0, legendaryX: 1.0, guaranteed: true },
+};
+// 下拉/打造面板统一按 tier 升序展示
+export const BAIT_ORDER = Object.keys(BAITS).sort((a, b) => BAITS[a].tier - BAITS[b].tier);
+
+// ====== 鱼饵打造配方 ======
+// unlockZone: 该配方在哪个流域解锁时自动学会 (见 systems.js checkRecipeUnlocks)
+// unlockToast: 学会时弹一次的提示 (只弹一次, 由 state.recipesUnlocked 记账)
+export const BAIT_RECIPES = [
+  {
+    key: "bait_coarse", icon: "🎣", name: "粗制鱼饵", unlockZone: "stream_source",
+    unlockToast: "🎣 解锁配方: 粗制鱼饵",
+    desc: "稀有×1.5 传说×2.0",
+    cost: { seaweed: 2, fish: 1 }, yield: { bait_coarse: 1 },
+  },
+  {
+    key: "bait_fine", icon: "🪝", name: "精制鱼饵", unlockZone: "river_core",
+    unlockToast: "🎣 解锁配方: 精制鱼饵",
+    desc: "稀有×2.0 传说×3.0",
+    cost: { seaweed: 4, fish: 2 }, yield: { bait_fine: 1 },
+  },
+  {
+    key: "bait_star", icon: "✨", name: "星光饵", unlockZone: "river_core",
+    // 星光饵配方随第5流域一起可见, 但材料含"眷顾", 拿不到就一直是置灰状态 —— 所以不单独弹解锁提示
+    desc: "下一竿必定咬稀有或传说",
+    cost: { favor: 1, seaweed: 5, jerky: 1 }, yield: { bait_star: 1 },
+  },
+];
+
+// ====== 熔炼配方 (需要建成 熔炼炉) ======
+export const SMELT_RECIPES = [
+  {
+    key: "smelt_rare", icon: "⚗️", name: "稀有渔获→眷顾",
+    desc: "五条稀有之魂,或一条传说之魂,凝成一次必然的相遇。",
+    cost: { rare_soul: 5 }, yield: { favor: 1 },
+  },
+  {
+    key: "smelt_legend", icon: "⚗️", name: "传说渔获→眷顾",
+    desc: "五条稀有之魂,或一条传说之魂,凝成一次必然的相遇。",
+    cost: { legend_soul: 1 }, yield: { favor: 1 },
+  },
+];
 
 // 保护动物钓获后的放归文案 (不进背包/不给鱼资源, 只记录图鉴+念一段这个)
 export const RELEASE_COPY = {
@@ -340,6 +398,8 @@ export const RES_LABEL = {
   coconut: "椰子", coconut_meat: "椰子肉", coconut_juice: "椰子汁",
   bread: "面包", spam: "午餐肉", fish: "鱼", water: "净水", trash: "垃圾",
   raftkit: "修复包", jerky: "鱼干", fossil: "化石碎片",
+  rare_soul: "稀有渔获", legend_soul: "传说渔获", favor: "钓鱼之神的眷顾",
+  bait_coarse: "粗制鱼饵", bait_fine: "精制鱼饵", bait_star: "星光饵",
 };
 
 // ====== 背包分类标签 ======

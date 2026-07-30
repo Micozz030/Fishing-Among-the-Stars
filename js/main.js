@@ -10,7 +10,7 @@ import {
   doFishLoot, doRummage, doPetInteract, wirePetAnimation,
 } from "./actions.js";
 import { doFishing } from "./fishing.js";
-import { gameTick, bottleHit, openBottleModal, claimBottleReward } from "./systems.js";
+import { gameTick, bottleHit, openBottleModal, claimBottleReward, checkLoginFavor } from "./systems.js";
 import {
   updateUI, openPanel, auditBagItemCoverage, selectedBait, toggleBaitDropdown,
   closeAllDropdowns, syncDropdownVisibility,
@@ -30,6 +30,7 @@ loadCostume();
 wirePetAnimation(setPetAction);
 wireFishCGModal();
 initAudioOnGesture();
+checkLoginFavor();   // 每个自然日首次进入 +1 天进度, 满2天发1个"钓鱼之神的眷顾"
 
 document.getElementById("btn-fish-loot").onclick = doFishLoot;
 document.getElementById("btn-rummage").onclick = doRummage;

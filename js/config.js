@@ -11,6 +11,8 @@ export const ICONS = {
   jerky: "🍢",
   coconut_meat: "🍖", coconut_juice: "🥤",
   fossil: "🦴",
+  rare_soul: "💠", legend_soul: "🔯", favor: "🌟",
+  bait_coarse: "🎣", bait_fine: "🪝", bait_star: "✨",
 };
 
 export const CONFIG = {
@@ -37,6 +39,11 @@ export const CONFIG = {
   ENERGY_REGEN_INTERVAL: 30,        // 精力耗尽后, 每隔多少秒被动恢复一次
   ENERGY_REGEN_AMOUNT: 5,           // 每次被动恢复的精力值
   AUTO_COLLECTOR_FISH_WEIGHT: 1.5,  // 自动收集网掉落表中"普通鱼"相对其他条目的权重倍数
+  // 稀有/传说鱼的基础触发概率 (每次抛竿, 再乘以 饵料×技能×词条 的综合倍率)
+  // 原先 0.005/0.08 散落在 fishing.js 的两个函数里各写一遍, 现在收敛到这里统一调
+  LEGENDARY_BASE_CHANCE: 0.008,
+  RARE_BASE_CHANCE: 0.08,
+  FAVOR_LOGIN_DAYS: 2,              // 累计登录N个自然日 → 眷顾×1 (累计制, 断签不清零)
   FISH_LENGTH_RANGES: {
     common: [8, 35],
     rare: [30, 80],

@@ -20,7 +20,7 @@ export const SAVE_VERSION = 3;
 export const state = {
   version: SAVE_VERSION,
   era: "stone", // stone -> iron
-  res: { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0, fossil: 0 },
+  res: { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0, fossil: 0, rare_soul: 0, legend_soul: 0, favor: 0, bait_coarse: 0, bait_fine: 0, bait_star: 0 },
 
   // ---- 角色/宠物选择 ----
   character: null,             // "female" | "male", 首次开局选择
@@ -53,7 +53,13 @@ export const state = {
     rod: false,           // 简易鱼竿：解锁钓鱼
     hammer: false,        // 锤子：解锁敲椰子
     purifier: false,      // 净水过滤器：解锁被动产水
+    smeltery: false,      // 熔炼炉：解锁把渔获之魂熔成"钓鱼之神的眷顾"
   },
+
+  // ---- 配方解锁 / 眷顾累计 ----
+  recipesUnlocked: {},          // { 配方key: true } 随流域解锁自动学会, 用于"解锁提示只弹一次"
+  favorLoginProgress: 0,        // 累计登录天数进度 (满 CONFIG.FAVOR_LOGIN_DAYS 发1个眷顾并归零)
+  lastLoginDate: null,          // 上一次计入进度的自然日 "YYYY-MM-DD", 同一天重复进入不重复累加
   rodLevel: 0, // 鱼竿升级等级 0~6: 每级 普通鱼命中率+5% (50%->80%, 上限设计意图为让后期普通鱼接近"白拿", 作为货币/宠物粮资源) 且 稀有/传说钓鱼小游戏钩取区间+4px (不影响稀有/传说触发概率, 那由饵料/技能/词条决定)
   purifierAccum: 0, // 净水器累积计时器
   autocollectorAccum: 0, // 自动收集网打捞计时器
@@ -110,7 +116,7 @@ export const state = {
 
 // 供 load()/migrate() 内部复用的"资源默认形状", 也用于给全新存档发放初始礼包
 function defaultRes() {
-  return { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0, fossil: 0 };
+  return { wood: 0, rope: 0, scrap: 0, iron: 0, seaweed: 0, plastic: 0, coconut: 0, bread: 0, spam: 0, fish: 0, water: 0, trash: 0, raftkit: 0, jerky: 0, coconut_meat: 0, coconut_juice: 0, fossil: 0, rare_soul: 0, legend_soul: 0, favor: 0, bait_coarse: 0, bait_fine: 0, bait_star: 0 };
 }
 
 // 旧存档兼容: 2流域(stream/river) → 5流域 key 迁移
@@ -158,7 +164,10 @@ export function migrate(data, validPetTypes) {
     );
   }
   delete state.zoneExpansions;
-  state.builds = Object.assign({ net: false, furnace: false, autocollector: false, rod: false, hammer: false, purifier: false }, data.builds);
+  state.builds = Object.assign({ net: false, furnace: false, autocollector: false, rod: false, hammer: false, purifier: false, smeltery: false }, data.builds);
+  state.recipesUnlocked = data.recipesUnlocked || {};
+  state.favorLoginProgress = data.favorLoginProgress || 0;
+  state.lastLoginDate = data.lastLoginDate || null;
   state.bestiary = data.bestiary || {};
   state.blueprints = data.blueprints || {};
   state.raftParts = data.raftParts || {};
@@ -486,8 +495,10 @@ ctx.imageSmoothingEnabled = false;
 
 // ====== 建筑渲染顺序 / 是否已建成 (派生只读值, 被 render.js 的 drawRaft 和 systems.js 的
 // checkBuildAchievements 同时用到, 放在这里同样是为了避免 render.js ⇄ systems.js 循环) ======
-export const BUILDING_RENDER_ORDER = ["furnace", "purifier", "autocollector", "furnace_v2", "water_tank", "sunshade", "watchtower", "flag", "flowerpot"];
+export const BUILDING_RENDER_ORDER = ["furnace", "purifier", "autocollector", "smeltery", "furnace_v2", "water_tank", "sunshade", "watchtower", "flag", "flowerpot"];
+// state.builds 里的建筑 vs state.raftParts 里的图纸部件, 两者都会占木筏格子
+const BUILDS_BACKED_KEYS = ["furnace", "purifier", "autocollector", "smeltery"];
 export function isBuiltKey(key) {
-  if (key === "furnace" || key === "purifier" || key === "autocollector") return !!state.builds[key];
+  if (BUILDS_BACKED_KEYS.includes(key)) return !!state.builds[key];
   return !!state.raftParts[key];
 }

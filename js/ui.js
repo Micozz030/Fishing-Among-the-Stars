@@ -17,6 +17,7 @@ import {
   BUILDS, SKILL_DEFS, ACCESSORY_DEFS, COSTUME_OPTIONS, SHOP_HAIR_EXTRA, SHOP_ITEMS,
   FOOD_DEFS, RES_LABEL, BAG_CATEGORY_LABEL, BAG_CATEGORY_ORDER,
   ZONES, zoneDef, zoneSlotConfig, zoneCommonSpecies,
+  BAITS, BAIT_ORDER, BAIT_RECIPES, SMELT_RECIPES,
 } from "./data.js";
 import {
   state, costumeState, saveCostume, save, canAfford, ownsBlueprint,
@@ -28,7 +29,7 @@ import {
   doOpenCoconut, doEatCoconutMeat, doEatCoconutJuice, doFishLoot, doRummage,
   doZoneTravel, canExpandZone, doEat, doDrink, doFeedPet, doSellFish, doBuyItem,
   doDiscardBagItem, doSellBagItem, treeHasTierUnlocked, canUnlockSkillNode,
-  unlockSkillNode,
+  unlockSkillNode, doCraftBait, doSmeltSoul,
 } from "./actions.js";
 import {
   fishingState, fishingPhaseUntil, fishingPhaseDur, fishingBiteTier, rodChance, displayChancePct,
@@ -369,12 +370,21 @@ export function renderShopModal() {
 }
 
 // ====== 第一行: 钓鱼按钮 ======
+// 饵料列表统一从 data.js 的 BAITS 表派生 (按 tier 从低到高), 库存实时读 state.res。
+// 未解锁/从未打造过的高级饵料库存为0, 会走既有的"置灰不可选"规则, 不需要额外的可见性判断。
 function baitDefs() {
-  return {
-    seaweed: { label: "水草饵", rareX: 1.0, legendaryX: 1.0, stock: state.res.seaweed },
-    bread:   { label: "面包饵", rareX: 1.4, legendaryX: 1.6, stock: state.res.bread },
-    spam:    { label: "午餐肉饵", rareX: 1.6, legendaryX: 2.0, stock: state.res.spam },
-  };
+  const out = {};
+  BAIT_ORDER.forEach(key => {
+    const b = BAITS[key];
+    out[key] = {
+      label: b.label,
+      rareX: b.rareX,
+      legendaryX: b.legendaryX,
+      guaranteed: !!b.guaranteed,
+      stock: state.res[b.res] || 0,
+    };
+  });
+  return out;
 }
 
 export function renderFishRow() {
@@ -434,7 +444,7 @@ export function renderFishRow() {
   const defs = baitDefs();
   const cur = defs[selectedBait] || defs.seaweed;
   const chancePct = displayChancePct(rodChance());
-  const rareInfo = cur.rareX > 1.0 ? ` 稀有×${cur.rareX.toFixed(1)}` : "";
+  const rareInfo = cur.guaranteed ? " 必中" : (cur.rareX > 1.0 ? ` 稀有×${cur.rareX.toFixed(1)}` : "");
   fishBtn.textContent = `🎣 钓鱼-${cur.label} (${chancePct}%${rareInfo} 库存${Math.floor(cur.stock)})`;
   fishBtn.disabled = cur.stock < 1 || state.energy <= 0;
   arrowBtn.disabled = false;
@@ -450,7 +460,10 @@ export function renderBaitDropdown() {
     const item = document.createElement("button");
     const outOfStock = def.stock < 1;
     item.className = "bait-option" + (key === selectedBait ? " selected" : "");
-    item.textContent = `${def.label}${def.rareX > 1.0 ? ` 稀有×${def.rareX.toFixed(1)}` : ""} 库存${Math.floor(def.stock)}`;
+    const tierInfo = def.guaranteed
+      ? " 必中稀有/传说"
+      : (def.rareX > 1.0 ? ` 稀有×${def.rareX.toFixed(1)} 传说×${def.legendaryX.toFixed(1)}` : "");
+    item.textContent = `${def.label}${tierInfo} 库存${Math.floor(def.stock)}`;
     item.disabled = outOfStock; // 库存为0的饵料置灰禁用, 抛竿会消耗鱼饵, 不能选一个用不了的
     item.onclick = () => { if (outOfStock) return; selectedBait = key; baitDropdownOpen = false; updateUI(); };
     list.appendChild(item);
@@ -533,6 +546,8 @@ export function renderBuildModal() {
   // 普通建筑
   BUILDS.forEach(def => {
     const built = state.builds[def.key];
+    // 带 unlockZone 的建筑(熔炼炉)在对应流域解锁前完全不出现在列表里
+    if (def.unlockZone && !built && !isZoneUnlocked(def.unlockZone)) return;
     if (built && !def.repeatable) { hiddenItems.push({ name: def.name, icon: def.icon }); return; }
     const blockedByPrereq = def.requireBuild && !state.builds[def.requireBuild];
     const card = document.createElement("div");
@@ -632,6 +647,39 @@ export function renderCraftModal() {
   if (state.builds.dryer) addRecipeRow("craft_jerky", "🥩", "鱼→鱼干", "晒制鱼干,用于喂养宠物", CONFIG.JERKY_CRAFT.cost, CONFIG.JERKY_CRAFT.yield, doMakeJerky, true);
   if (state.builds.furnace) addRecipeRow("smelt", "🔥", "废铁→铁块", "将原矿冶炼为金属材料,解锁更多高级合成", CONFIG.SMELT_CRAFT.cost, CONFIG.SMELT_CRAFT.yield, doSmeltIron, true);
 
+  // ====== 🎣 鱼饵 分区: 配方随流域解锁后出现; 星光饵配方一并可见, 缺材料时按既有规则置灰 ======
+  {
+    const unlockedRecipes = BAIT_RECIPES.filter(r => state.recipesUnlocked[r.key]);
+    if (unlockedRecipes.length) {
+      const head = document.createElement("div");
+      head.className = "craft-section-head";
+      head.textContent = "🎣 鱼饵";
+      list.appendChild(head);
+      unlockedRecipes.forEach(r => {
+        addRecipeRow(`craft_${r.key}`, r.icon, r.name, r.desc, r.cost, r.yield, (n) => doCraftBait(r.key, n), true);
+      });
+    }
+  }
+
+  // ====== ⚗️ 熔炼 分区: 需要先建成熔炼炉, 未建成时显示锁定态而不是直接隐藏(让玩家知道有这条路) ======
+  if (isZoneUnlocked("river_core") || state.builds.smeltery) {
+    const head = document.createElement("div");
+    head.className = "craft-section-head";
+    head.textContent = "⚗️ 熔炼";
+    list.appendChild(head);
+    if (!state.builds.smeltery) {
+      const locked = document.createElement("div");
+      locked.className = "wrow craft-locked-row";
+      locked.innerHTML = `<div class="wrow-info"><span class="wrow-icon">🔒</span> <b>需要建造: 熔炼炉</b><br>
+        <span class="wrow-desc">灼热的炉心能把渔获之魂凝成结晶。</span></div>`;
+      list.appendChild(locked);
+    } else {
+      SMELT_RECIPES.forEach(r => {
+        addRecipeRow(`smelt_${r.key}`, r.icon, r.name, r.desc, r.cost, r.yield, (n) => doSmeltSoul(r.key, n), false);
+      });
+    }
+  }
+
   // 椰子处理: 锤子敲开椰子 → 产出椰子肉×1 + 椰子汁×1
   {
     const key = "coconut_hammer";
@@ -689,6 +737,25 @@ export function renderGuide() {
     html += `<div class="guide-hint">提示: 翻垃圾堆有机会获得图纸,用图纸可以在「建造」面板里造出更强的木筏部件</div>`;
     box.innerHTML = html;
   }
+
+  // ====== 鱼饵档位说明 + 眷顾累计进度 (两个分支都要显示, 所以放在 if/else 之后统一追加) ======
+  const ladder = BAIT_ORDER.map(k => {
+    const b = BAITS[k];
+    const owned = state.res[b.res] || 0;
+    const effect = b.guaranteed ? "必中稀有/传说" : `稀有×${b.rareX.toFixed(1)} 传说×${b.legendaryX.toFixed(1)}`;
+    return `<div class="guide-item">${b.label} — ${effect} <span style="opacity:.6">(持有${Math.floor(owned)})</span></div>`;
+  }).join("");
+  const favorProgress = state.favorLoginProgress || 0;
+  const favorTarget = CONFIG.FAVOR_LOGIN_DAYS;
+  const favorDots = "◕".repeat(favorProgress) + "◌".repeat(Math.max(0, favorTarget - favorProgress));
+  box.innerHTML += `
+    <div class="guide-title" style="margin-top:14px">🎣 鱼饵档位</div>
+    <div class="guide-hint">越往下越容易钓到稀有/传说鱼。高级鱼饵在「打造」面板制作,配方随流域推进自动解锁。</div>
+    ${ladder}
+    <div class="guide-title" style="margin-top:14px">🌟 钓鱼之神的眷顾</div>
+    <div class="guide-item">累计登录进度: ${favorDots} ${favorProgress}/${favorTarget}</div>
+    <div class="guide-hint">每个自然日首次进入游戏 +1(断更不清零), 攒满即得眷顾×1。眷顾也可以用「熔炼炉」把渔获之魂熔出来, 是星光饵的核心材料。</div>
+  `;
 }
 
 // ====== 背包系统 (固定右上角, 统一管理消耗品: 食用/丢弃/售卖) ======
@@ -714,6 +781,15 @@ export const BAG_ITEMS = [
   { key: "jerky", icon: "🍢", name: "鱼干", category: "item", eat: () => doFeedPet(), eatLabel: "宠物饱食度+", actionLabel: "喂宠物", sellPrice: 2 },
   { key: "raftkit", icon: "🧰", name: "修复包", category: "item", eat: null, sellPrice: 3 },
   { key: "fossil", icon: "🦴", name: "化石碎片", category: "item", eat: null, sellPrice: 5 },
+
+  // 渔获之魂: 非保护的稀有/传说鱼掉落, 熔炼炉里换"钓鱼之神的眷顾" (不可出售, 免得玩家误卖断了兑换路)
+  { key: "rare_soul", icon: "💠", name: "稀有渔获", category: "material", eat: null, sellPrice: 0 },
+  { key: "legend_soul", icon: "🔯", name: "传说渔获", category: "material", eat: null, sellPrice: 0 },
+  // 眷顾: 只能靠累计登录 + 熔炼获得, 星光饵的核心材料
+  { key: "favor", icon: "🌟", name: "钓鱼之神的眷顾", category: "item", eat: null, sellPrice: 0 },
+  { key: "bait_coarse", icon: "🎣", name: "粗制鱼饵", category: "item", eat: null, sellPrice: 0 },
+  { key: "bait_fine", icon: "🪝", name: "精制鱼饵", category: "item", eat: null, sellPrice: 0 },
+  { key: "bait_star", icon: "✨", name: "星光饵", category: "item", eat: null, sellPrice: 0 },
 ];
 
 // 自检: 确保 state.res 里每个资源key都能在 BAG_ITEMS 找到对应的展示项, 避免未来新增资源时又"静默消失"
@@ -757,7 +833,7 @@ export function renderBagModal() {
           <div class="bag-actions">
             ${item.eat ? `<button class="bag-action-btn" id="bag-eat" ${empty || (item.key === "jerky" && !state.pet) ? "disabled" : ""}>${item.actionLabel || "食用"} (${item.eatLabel})</button>` : ""}
             <button class="bag-action-btn" id="bag-discard" ${empty ? "disabled" : ""}>丢弃</button>
-            <button class="bag-action-btn sell" id="bag-sell" ${empty ? "disabled" : ""}>售卖 (🪙${item.sellPrice}/个)</button>
+            ${item.sellPrice > 0 ? `<button class="bag-action-btn sell" id="bag-sell" ${empty ? "disabled" : ""}>售卖 (🪙${item.sellPrice}/个)</button>` : ""}
           </div>
         ` : ""}
       `;
@@ -774,7 +850,9 @@ export function renderBagModal() {
           renderBagModal();
         };
         card.querySelector("#bag-discard").onclick = (e) => { e.stopPropagation(); if (!empty) doDiscardBagItem(item.key, 1); renderBagModal(); };
-        card.querySelector("#bag-sell").onclick = (e) => { e.stopPropagation(); if (!empty) doSellBagItem(item.key, 1); renderBagModal(); };
+        // 非卖品(sellPrice=0, 如眷顾/渔获之魂/打造出来的鱼饵)不渲染售卖按钮, 避免0金币白白卖掉
+        const sellBtn = card.querySelector("#bag-sell");
+        if (sellBtn) sellBtn.onclick = (e) => { e.stopPropagation(); if (!empty) doSellBagItem(item.key, 1); renderBagModal(); };
       }
       grid.appendChild(card);
     });
